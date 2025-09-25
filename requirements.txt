@@ -1,0 +1,13 @@
+sec_api
+dotenv
+pandas
+matplotlib
+newsapi
+bs4
+yfinance
+markdown
+weasyprint
+fpdf
+reportlab
+python-docx
+rich
