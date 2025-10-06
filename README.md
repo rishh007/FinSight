@@ -24,9 +24,11 @@ FinSight is a financial analytics toolkit focused on data analysis, visualizatio
    git clone https://github.com/rishh007/FinSight.git
    cd FinSight
    ```
-2. **Create a virtual environment**
+2. **Create and activate  virtual environment**
    ```bash
    python -m venv myvenv
+   .\myvenv\Scripts\activate
+   
    ```
    
 
