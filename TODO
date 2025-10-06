@@ -1,8 +1,20 @@
 2 agents - 
 - 1 for tasks (current) and 
-- other one would be a conversational bot with SEC-Fillings (RAG) and Web references as current news  
+- other one would be a conversational chatbot with SEC-Fillings (RAG) and Web references as current news  
+
+or 
+
+can implement conversational functionality in the main agent itself 
+
+- improve the report format 
+- verify the headings/ sections that need to be included
+- option to provide a template and get all the details embedded in it 
+- create a nice ui
+- live news widgets 
+
 
 frontend - interactive 
 fastapi- endpoints / backend 
+
 
 deploy on cloud 
