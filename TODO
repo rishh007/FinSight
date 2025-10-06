@@ -1,0 +1,8 @@
+2 agents - 
+- 1 for tasks (current) and 
+- other one would be a conversational bot with SEC-Fillings (RAG) and Web references as current news  
+
+frontend - interactive 
+fastapi- endpoints / backend 
+
+deploy on cloud 
