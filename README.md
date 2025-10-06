@@ -24,13 +24,18 @@ FinSight is a financial analytics toolkit focused on data analysis, visualizatio
    git clone https://github.com/rishh007/FinSight.git
    cd FinSight
    ```
+2. **Create a virtual environment**
+   ```bash
+   python -m venv myvenv
+   ```
+   
 
-2. **Install dependencies:**
+3. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Open and run the notebook:**
+4. **Open and run the notebook:**
    ```bash
    jupyter notebook main.ipynb
    ```
