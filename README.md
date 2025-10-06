@@ -1,6 +1,4 @@
-# FinSight-financial-analyst
-
-# FinSight
+# FinSight-financial-analyst 💰📈
 
 FinSight is a financial analytics toolkit focused on data analysis, visualization, and reporting. Built primarily using Python and Jupyter Notebooks, FinSight empowers users to explore financial datasets and generate insightful reports.
 
