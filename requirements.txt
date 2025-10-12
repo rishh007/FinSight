@@ -3,6 +3,7 @@ dotenv
 pandas
 matplotlib
 newsapi
+langchain_ollama
 bs4
 yfinance
 markdown
