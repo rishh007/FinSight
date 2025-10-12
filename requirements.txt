@@ -6,6 +6,7 @@ newsapi
 bs4
 yfinance
 markdown
+langchain_ollama
 weasyprint
 fpdf
 langgraph
