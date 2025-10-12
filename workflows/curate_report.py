@@ -28,9 +28,8 @@ console = Console()
 def create_price_chart(company_name, symbol=None, days=90):
     """Create a professional price chart for the company"""
     try:
-        # Try to get symbol from company name if not provided
+        # try to get symbol from company name if not provided
         if not symbol:
-            # Simple mapping for common companies - you can expand this
             symbol_map = {
                 'salesforce': 'CRM',
                 'apple': 'AAPL',
@@ -44,7 +43,6 @@ def create_price_chart(company_name, symbol=None, days=90):
             }
             symbol = symbol_map.get(company_name.lower().split()[0], company_name.upper()[:4])
         
-        # Download stock data
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
@@ -56,7 +54,7 @@ def create_price_chart(company_name, symbol=None, days=90):
             start=start_date, 
             end=end_date, 
             progress=False,
-            auto_adjust=False,  # This prevents the FutureWarning
+            auto_adjust=False,  
             threads=True
         )
         
@@ -74,17 +72,14 @@ def create_price_chart(company_name, symbol=None, days=90):
         if 'Date' not in stock_data.columns and stock_data.index.name == 'Date':
             stock_data = stock_data.reset_index()
         
-        # Ensure we have the required columns
         required_columns = ['Close']
         if not all(col in stock_data.columns for col in required_columns):
             console.print(Panel(f"⚠️ Missing required data columns for {symbol}", style="bold yellow"))
             return None, None, None
         
-        # Create professional chart
         plt.style.use('default')
         fig, ax = plt.subplots(figsize=(12, 6), facecolor='white')
         
-        # Use proper date column (either 'Date' or index)
         if 'Date' in stock_data.columns:
             dates = pd.to_datetime(stock_data['Date'])
         else:
@@ -92,26 +87,21 @@ def create_price_chart(company_name, symbol=None, days=90):
         
         prices = stock_data['Close']
         
-        # Plot price with gradient fill - Fixed the 1-dimensional error
         ax.plot(dates, prices, color="#0b273b", linewidth=2.5, alpha=0.9)
         ax.fill_between(dates, prices, alpha=0.3, color='#1f77b4')
         
-        # Styling
-        ax.set_facecolor('#fafafa')
+        ax.set_facecolor("#dacb9f")
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
         
-        # Format x-axis
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
         ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
         plt.xticks(rotation=45)
         
-        # Labels and title
         ax.set_title(f'{company_name} Stock Price - Last {days} Days', 
                     fontsize=16, fontweight='bold', color='#2c3e50', pad=20)
         ax.set_xlabel('Date', fontsize=12, color='#34495e')
         ax.set_ylabel('Price ($)', fontsize=12, color='#34495e')
         
-        # Add current price annotation
         current_price = prices.iloc[-1]
         latest_date = dates.iloc[-1]
         ax.annotate(f'${current_price:.2f}', 
@@ -120,10 +110,8 @@ def create_price_chart(company_name, symbol=None, days=90):
                    bbox=dict(boxstyle='round,pad=0.3', facecolor='#1f77b4', alpha=0.8),
                    color='white', fontweight='bold')
         
-        # Tight layout
         plt.tight_layout()
         
-        # Save chart - ensure directory exists
         chart_dir = './reports/charts'
         os.makedirs(chart_dir, exist_ok=True)
         chart_path = os.path.join(chart_dir, f'{symbol}_chart_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png')
@@ -203,7 +191,6 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         
         doc.add_paragraph()  # Space
         
-        # Try to create and insert price chart
         console.print("📈 Attempting to create and insert chart...")
         chart_path, current_price, symbol = create_price_chart(company_name)
         if chart_path and os.path.exists(chart_path):
@@ -408,7 +395,6 @@ def curate_report_node(state: FinanceAgentState) -> dict:
     financial analyst report and returns it as a Markdown string.
     """
     
-    # Pretty print node start
     console.print(Panel("🔄 NODE: Generating Professional Analyst Report", style="bold green"))
 
     # --- 1. RETRIEVE DATA FROM CORRECT CHANNELS WITH BETTER ERROR HANDLING ---
@@ -450,6 +436,8 @@ def curate_report_node(state: FinanceAgentState) -> dict:
             else:
                 market_cap_str = str(market_cap)
             
+            console.print(f"Stock performance metrics")
+
             stock_performance_text = (
                 f"Current Price: **${current_price}** | "
                 f"Market Cap: **{market_cap_str}** | "
@@ -461,13 +449,11 @@ def curate_report_node(state: FinanceAgentState) -> dict:
     else:
         stock_performance_text = "Stock performance data is unavailable."
 
-    # Check if a company name was successfully extracted
     if company_name == "Unknown Company":
         error_msg = "Failed to generate a report. Could not determine the company from your query."
         console.print(Panel(error_msg, style="bold red"))
         return {"final_answer": error_msg}
 
-    # --- 2. FORMAT NEWS SUMMARY ---
     if news_articles and isinstance(news_articles, list) and len(news_articles) > 0:
         try:
             news_items = []
@@ -487,7 +473,7 @@ def curate_report_node(state: FinanceAgentState) -> dict:
     else:
         news_summary_text = f"- **{company_name}** market developments ongoing\n- Analyst coverage and market sentiment analysis continues"
 
-    # --- 3. CONSTRUCT REPORT ---
+    # ---REPORT CONSTRUCT---
     report_content_md = f"""
 # 📊 Financial Analyst Report for {company_name}
 
@@ -571,7 +557,6 @@ An analysis of recent financial news reveals the following events:
     else:
         console.print(Panel("📄 DOCX export skipped (python-docx not available)", style="bold yellow"))
 
-    # --- 4. RETURN FINAL STATE ---
     console.print("---NODE: Report Generation Complete---")
     
     try:
@@ -580,9 +565,9 @@ An analysis of recent financial news reveals the following events:
     except ImportError:
         pass  # Not in Jupyter environment
     
-    # ORIGINAL STATE LOGIC - UNCHANGED
+    print(RichMarkdown(f"DEBUG : {state.get("final_answer")}"))
+
     return {
-        # Store a copy of the final data structure for memory/persistence
         "report_data": {
             "company_name": company_name,
             "risks": risk_summary,

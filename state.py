@@ -16,6 +16,8 @@ class FinanceAgentState(TypedDict):
     should_continue: bool
     create_chart : bool 
 
+    time_period: str  
+
 # tool inputs 
     company_name: Optional[str]
     ticker: Optional[str]

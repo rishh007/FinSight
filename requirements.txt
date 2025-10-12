@@ -8,6 +8,7 @@ yfinance
 markdown
 weasyprint
 fpdf
+langgraph
 reportlab
 python-docx
 rich
