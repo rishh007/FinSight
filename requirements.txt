@@ -1,5 +1,5 @@
 sec_api
-dotenv
+python-dotenv
 pandas
 matplotlib
 newsapi
@@ -13,3 +13,7 @@ langgraph
 reportlab
 python-docx
 rich
+fastapi
+uvicorn[standard]
+websockets
+pydantic
