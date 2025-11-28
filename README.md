@@ -9,7 +9,7 @@ FinSight is a lightweight financial analytics + conversational assistant toolkit
 
 ```
 .
-├── main.py                  # FastAPI backend + WebSocket endpoint (serves UI + agent)
+├── main_backend.py                  # FastAPI backend + WebSocket endpoint (serves UI + agent)
 ├── requirements.txt         # Python dependencies
 ├── state.py                 # FinanceAgentState (shared session state)
 ├── workflows/               # Tool / node implementations (entity extraction, data fetchers, etc.)
