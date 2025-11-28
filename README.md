@@ -1,4 +1,3 @@
-# Updated README (ready to paste)
 
 # FinSight — Financial Analyst 💰📈
 
