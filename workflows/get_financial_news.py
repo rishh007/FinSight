@@ -1,13 +1,14 @@
-from newsapi.newsapi_client import NewsApiClient
+import requests
 from bs4 import BeautifulSoup
 from state import FinanceAgentState
-import requests 
+import os
+from datetime import datetime, timedelta
 import os
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-
+from langchain_core.messages import AIMessage, HumanMessage 
 
 console = Console()
 
@@ -43,17 +44,24 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
         console.print(Panel(f"❌ {error_message}", style="bold red"))
         return {"final_answer": error_message}
     
-    console.print("🔐 News API key found - initializing client...")
-    newsapi = NewsApiClient(api_key=news_api_key)
+    console.print("🔐 News API key found - preparing request...")
     
     try:
+        headers = {'Authorization': f'Bearer {news_api_key}'}
+        params = {
+            'q': company_name,
+            'language': 'en',
+            'sortBy': 'publishedAt',
+            'pageSize': 2
+        }
+        
         with console.status(f"[bold green]Searching for news articles about {company_name}..."):
-            top_headlines = newsapi.get_everything(
-                q=company_name,
-                language='en',
-                sort_by='publishedAt',
-                page_size=2 
+            response = requests.get(
+                'https://newsapi.org/v2/everything',
+                headers=headers,
+                params=params
             )
+            top_headlines = response.json()
         
         articles_found = top_headlines.get('articles', [])
         console.print(f"📈 Found {len(articles_found)} articles from News API")
@@ -180,7 +188,10 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
         
         return {
             "news_results": articles_summary,
-            "final_answer": success_message
+            "final_answer": success_message,
+            "messages": [
+                AIMessage(content=f"I found {len(articles_summary)} recent news articles about {company_name}. Here’s a brief summary of the highlights.")
+                ]
         }
         
     except Exception as e:
@@ -206,4 +217,5 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
                 border_style="yellow"
             ))
         
-        return {"final_answer": error_message}
+        return {"final_answer": error_message, 
+                "messages": [AIMessage(content=error_message)]}

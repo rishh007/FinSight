@@ -5,4 +5,29 @@
 frontend - interactive 
 fastapi- endpoints / backend 
 
+FASTAPI - {
+    
+    endpoints are working just fine 
+
+    stock data (with chart) and analyse (extract entities) are working fine 
+
+    **get sec filing not working throwing unusual error 
+
+
+    get financial news also working perfectly 
+
+    current branch - endpoints 
+    next tasks - 1. figure out why sec filing is not working, 
+                 2. main.ipynb shd work properly
+                 3. main.py (script)  shd work the same
+                 4. api.py shd work the same 
+                 5. push commits to the branch 
+                 6. backend apis shd work properly
+                 6*. make the bot conversational 
+                 7. create a frontend (react/streamlit)
+                 8. integrate RAG and a vector database
+                 9. next steps   
+
+}
+
 deploy on cloud 

@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown as RichMarkdown
 from state import FinanceAgentState
+from langchain_core.messages import AIMessage, HumanMessage 
 
 # Try to import docx with fallback
 try:
@@ -452,7 +453,10 @@ def curate_report_node(state: FinanceAgentState) -> dict:
     if company_name == "Unknown Company":
         error_msg = "Failed to generate a report. Could not determine the company from your query."
         console.print(Panel(error_msg, style="bold red"))
-        return {"final_answer": error_msg}
+        return {
+            "final_answer": error_msg,
+            "messages": [AIMessage(content=error_msg)]
+            }
 
     if news_articles and isinstance(news_articles, list) and len(news_articles) > 0:
         try:
@@ -565,7 +569,7 @@ An analysis of recent financial news reveals the following events:
     except ImportError:
         pass  # Not in Jupyter environment
     
-    print(RichMarkdown(f"DEBUG : {state.get("final_answer")}"))
+    print(RichMarkdown(f"DEBUG : {state.get('final_answer')}"))
 
     return {
         "report_data": {
@@ -574,5 +578,8 @@ An analysis of recent financial news reveals the following events:
             "performance_metrics": stock_performance_text,
             "news_count": len(news_articles) if isinstance(news_articles, list) else 0
         },
-        "final_answer": report_content_md
+        "final_answer": report_content_md, 
+        "messages":[
+            AIMessage(content=f"Here's your final report for {company_name}. It includes key risks, performance metrics, and related news. ")
+        ],
     }
