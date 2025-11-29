@@ -176,35 +176,6 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
         state.update(curate_report_node(state))
     
     return state
-
-# def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, Dict]:
-#     """Get existing session or create new one"""
-#     if session_id and session_id in sessions:
-#         return session_id, sessions[session_id]
-    
-#     new_session_id = str(uuid.uuid4())
-#     sessions[new_session_id] = {
-#         "created_at": datetime.now().isoformat(),
-#         "state": {
-#             "user_query": None,
-#             "messages": [],
-#             "should_continue": True,
-#             "create_chart": False,
-#             "company_name": None,
-#             "ticker": None,
-#             "filing_type": None,
-#             "section": None,
-#             "tool_result": None,
-#             "structured_data": None,
-#             "final_answer": None,
-#             "report_data": None,
-#             "price_history_json": None,
-#             "news_results": None,
-#             "time_period": None,
-#             "intent": None,
-#         }
-#     }
-#     return new_session_id, sessions[new_session_id]
 def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, Dict]:
     """
     Get existing session or create new one.
@@ -282,93 +253,6 @@ async def health_check():
         "active_sessions": len(sessions)
     }
 
-
-# @app.websocket("/ws/{session_id}")
-# async def websocket_endpoint(websocket: WebSocket, session_id: str):
-#     await websocket.accept()
-    
-#     # Get or create session
-#     if session_id not in sessions:
-#         session_id, session_data = get_or_create_session(session_id)
-#         await websocket.send_json({
-#             "type": "session_created",
-#             "session_id": session_id
-#         })
-#     else:
-#         session_data = sessions[session_id]
-    
-#     try:
-#         # Send greeting
-#         greeting_state = greeting_help_node(session_data["state"])
-#         await websocket.send_json({
-#             "type": "message",
-#             "content": greeting_state["final_answer"],
-#             "intent": "greeting"
-#         })
-        
-#         while True:
-#             # Receive message
-#             data = await websocket.receive_text()
-#             message_data = json.loads(data)
-#             user_message = message_data.get("message", "")
-            
-#             if user_message.lower() in ["exit", "quit"]:
-#                 await websocket.send_json({
-#                     "type": "message",
-#                     "content": "Goodbye 👋"
-#                 })
-#                 break
-            
-#             # Update state
-#             state = session_data["state"]
-#             state["user_query"] = user_message
-#             state["messages"].append(HumanMessage(content=user_message))
-            
-#             # Send processing status
-#             await websocket.send_json({
-#                 "type": "status",
-#                 "content": "Processing your request..."
-#             })
-            
-#             # Process query
-#             try:
-#                 updated_state = await process_query(state)
-#                 session_data["state"] = updated_state
-                
-#                 # Extract response
-#                 final_answer = updated_state.get("final_answer", "I couldn't process that request.")
-#                 intent = updated_state.get("intent")
-                
-#                 # Send response
-#                 response_data = {
-#                     "type": "message",
-#                     "content": final_answer,
-#                     "intent": intent,
-#                     "data": {}
-#                 }
-                
-#                 # Include relevant data based on intent
-#                 if intent == "get_stock_data_and_chart":
-#                     response_data["data"]["metrics"] = updated_state.get("structured_data")
-#                     response_data["data"]["chart_path"] = updated_state.get("chart_path")
-#                 elif intent == "get_financial_news":
-#                     response_data["data"]["news"] = updated_state.get("news_results")
-#                 elif intent == "get_report":
-#                     response_data["data"]["report"] = updated_state.get("report_data")
-                
-#                 await websocket.send_json(response_data)
-                
-#             except Exception as e:
-#                 await websocket.send_json({
-#                     "type": "error",
-#                     "content": f"Error processing request: {str(e)}"
-#                 })
-    
-#     except WebSocketDisconnect:
-#         print(f"WebSocket disconnected for session {session_id}")
-#     except Exception as e:
-#         print(f"WebSocket error: {e}")
-#         await websocket.close()
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -515,22 +399,6 @@ async def get_session_history(session_id: str):
         "message_count": len(messages),
         "messages": messages
     }
-
-# from fastapi import FastAPI, WebSocket
-# from fastapi.staticfiles import StaticFiles
-# # Serve static files (HTML, JS, CSS)
-# app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
-# @app.websocket("/ws")
-# async def websocket_endpoint(websocket: WebSocket):
-#     await websocket.accept()
-#     await websocket.send_text("WebSocket connected!")
-#     while True:
-#         try:
-#             msg = await websocket.receive_text()
-#             await websocket.send_text(f"Echo: {msg}")
-#         except:
-#             break
 
 if __name__ == "__main__":
     import uvicorn
