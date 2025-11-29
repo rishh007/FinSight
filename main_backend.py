@@ -12,8 +12,9 @@ from datetime import datetime
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
 import asyncio
 from pathlib import Path
+from database import db, init_db, close_db
+from contextlib import asynccontextmanager
 
-# Import your existing modules
 from state import FinanceAgentState
 from workflows.extract_entities import extract_entities_node
 from workflows.get_stock_data_and_chart import get_stock_data_and_chart_node
@@ -22,9 +23,71 @@ from workflows.get_sec_filing_section import get_sec_filing_section_node
 from workflows.curate_report import curate_report_node
 from fastapi.responses import FileResponse
 from langchain_ollama import OllamaLLM
+from fastapi.staticfiles import StaticFiles
+from bson import ObjectId
+from fastapi.responses import Response
+import mimetypes
 
-app = FastAPI(title="FinSight API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting up FinSight API...")
+    try:
+        await init_db()
+        print("✓ Startup complete")
+    except Exception as e:
+        print(f"✗ Startup failed: {e}")
+    yield 
+    print("Shutting down FinSight API...")
+    await close_db()
+    print("✓ Shutdown complete")
 
+app = FastAPI(title="FinSight API", version="1.0.0", lifespan=lifespan)
+
+async def store_file_dual(session_id: str, file_path: str, file_type: str, file_url: str):
+    """Store file in both filesystem and MongoDB"""
+    try:
+        if not os.path.exists(file_path):
+            print(f"Warning: File not found at {file_path}")
+            return None
+            
+        with open(file_path, 'rb') as f:
+            file_binary = f.read()
+        
+        filename = os.path.basename(file_path)
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if not mime_type:
+            mime_type = "application/octet-stream"
+        
+        # Store binary data
+        binary_doc = await db.file_binaries.insert_one({
+            "session_id": session_id,
+            "type": file_type,
+            "filename": filename,
+            "binary_data": file_binary,
+            "mime_type": mime_type,
+            "size_bytes": len(file_binary),
+            "created_at": datetime.now()
+        })
+        
+        # Store file metadata
+        await db.files.insert_one({
+            "session_id": session_id,
+            "type": file_type,
+            "path": file_url,  
+            "name": filename,
+            "binary_id": binary_doc.inserted_id,  
+            "size_bytes": len(file_binary),
+            "mime_type": mime_type,
+            "created_at": datetime.now()
+        })
+        
+        print(f"✓ Stored {file_type} in both filesystem and MongoDB: {filename}")
+        return binary_doc.inserted_id
+        
+    except Exception as e:
+        print(f"✗ Error storing file: {e}")
+        return None
+    
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -34,8 +97,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from fastapi.staticfiles import StaticFiles
-
 # Mount static directories for serving files
 app.mount("/charts", StaticFiles(directory="charts"), name="charts")
 app.mount("/reports", StaticFiles(directory="reports"), name="reports")
@@ -44,17 +105,14 @@ app.mount("/static", StaticFiles(directory="static", html=True), name="static")
 # Serve index.html at the root explicitly
 @app.get("/", response_class=FileResponse)
 async def serve_index():
-    # return FileResponse("static/index.html")
     return FileResponse("static/frontend.html")
-
-# Session storage - stores conversation history per session
-sessions: Dict[str, Dict[str, Any]] = {}
 
 # Initialize LLM
 try:
-    llm = OllamaLLM(model="llama3", format="json")
+    llm = OllamaLLM(model="llama3.2", format="json")
+    print("✓ Ollama LLM initialized")
 except Exception as e:
-    print(f"Error initializing Ollama: {e}")
+    print(f"✗ Error initializing Ollama: {e}")
     llm = None
 
 # Pydantic models for API
@@ -70,6 +128,7 @@ class ChatResponse(BaseModel):
 
 # Helper functions
 def check_for_chart_keywords(query: str) -> bool:
+    """Check if query contains chart-related keywords"""
     query = query.lower()
     return any(keyword in query for keyword in ["chart", "plot", "graph", "visualize", "visualise"])
 
@@ -116,16 +175,23 @@ JSON:
 """
     
     try:
+        if not llm:
+            raise ValueError("LLM not initialized")
+            
         response_str = llm.invoke(few_shot_prompt)
+        
+        if not response_str:
+            raise ValueError("Empty response from LLM")
+            
         decision_json = json.loads(response_str)
-        intent = decision_json["step"]
+        intent = decision_json.get("step", "greeting_help") 
     except Exception as e:
-        print(f"Intent classification error: {e}")
+        print(f"✗ Intent classification error: {e}")
         intent = "greeting_help"
     
     updates = {
         "intent": intent,
-        "messages": [HumanMessage(content=user_query)],
+        "messages": [],
     }
     
     if intent == "get_stock_data_and_chart":
@@ -135,6 +201,7 @@ JSON:
     return updates
 
 def greeting_help_node(state: FinanceAgentState) -> dict:
+    """Return greeting and help instructions"""
     instructions = """Hello! 😉
 
 I am FinSight 💰📈 - your personal Financial Analyst ...
@@ -148,7 +215,7 @@ Here are some things you can ask me:
 """
     return {
         "final_answer": instructions,
-        "messages": [AIMessage(content=instructions)]
+        "messages": []
     }
 
 def create_user_friendly_message(intent: str, state: dict) -> str:
@@ -157,7 +224,7 @@ def create_user_friendly_message(intent: str, state: dict) -> str:
     ticker = state.get("ticker", "")
     
     if intent == "get_stock_data_and_chart":
-        metrics = state.get("structured_data", {})
+        metrics = state.get("structured_data") or {}
         current_price = metrics.get("current_price", "N/A")
         pe_ratio = metrics.get("pe_ratio", "N/A")
         market_cap = metrics.get("market_cap", "N/A")
@@ -235,18 +302,30 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     elif intent == "get_stock_data_and_chart":
         state.update(get_stock_data_and_chart_node(state))
         # Create user-friendly message
-        friendly_message = create_user_friendly_message(intent, state)
-        state["user_friendly_message"] = friendly_message
+        try:
+            friendly_message = create_user_friendly_message(intent, state)
+            state["user_friendly_message"] = friendly_message
+        except Exception as e:
+            print(f"✗ Error creating friendly message: {e}")
+            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
         
     elif intent == "get_financial_news":
         state.update(get_financial_news_node(state))
-        friendly_message = create_user_friendly_message(intent, state)
-        state["user_friendly_message"] = friendly_message
+        try:
+            friendly_message = create_user_friendly_message(intent, state)
+            state["user_friendly_message"] = friendly_message
+        except Exception as e:
+            print(f"✗ Error creating friendly message: {e}")
+            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
         
     elif intent == "get_sec_filing_section":
         state.update(get_sec_filing_section_node(state))
-        friendly_message = create_user_friendly_message(intent, state)
-        state["user_friendly_message"] = friendly_message
+        try:
+            friendly_message = create_user_friendly_message(intent, state)
+            state["user_friendly_message"] = friendly_message
+        except Exception as e:
+            print(f"✗ Error creating friendly message: {e}")
+            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
         
     elif intent == "get_report":
         # Execute report workflow
@@ -254,69 +333,61 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
         state.update(get_financial_news_node(state))
         state.update(get_sec_filing_section_node(state))
         state.update(curate_report_node(state))
-        friendly_message = create_user_friendly_message(intent, state)
-        state["user_friendly_message"] = friendly_message
+        try:
+            friendly_message = create_user_friendly_message(intent, state)
+            state["user_friendly_message"] = friendly_message
+        except Exception as e:
+            print(f"✗ Error creating friendly message: {e}")
+            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
     
     return state
 
-def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, Dict]:
-    """Get existing session or create new one."""
-    if session_id:
-        if session_id in sessions:
-            return session_id, sessions[session_id]
-        # create session with provided id
-        sessions[session_id] = {
-            "created_at": datetime.now().isoformat(),
-            "files": [],  # Track files generated in this session
-            "state": {
-                "user_query": None,
-                "messages": [],
-                "should_continue": True,
-                "create_chart": False,
-                "company_name": None,
-                "ticker": None,
-                "filing_type": None,
-                "section": None,
-                "tool_result": None,
-                "structured_data": None,
-                "final_answer": None,
-                "report_data": None,
-                "price_history_json": None,
-                "news_results": None,
-                "time_period": None,
-                "intent": None,
-            }
-        }
-        return session_id, sessions[session_id]
+async def get_or_create_session(session_id: str):
+    """Get existing session or create new one"""
+    session = await db.sessions.find_one({"session_id": session_id})
 
-    # no session_id -> generate one
-    new_session_id = str(uuid.uuid4())
-    sessions[new_session_id] = {
+    # If found → return it
+    if session:
+        return session_id, session
+
+    # Otherwise → create new session
+    initial_state = {
+        "user_query": None,
+        "messages": [], 
+        "should_continue": True,
+        "create_chart": False,
+        "company_name": None,
+        "ticker": None,
+        "filing_type": None,
+        "section": None,
+        "tool_result": None,
+        "structured_data": None,
+        "final_answer": None,
+        "report_data": None,
+        "price_history_json": None,
+        "news_results": None,
+        "time_period": None,
+        "intent": None,
+        "user_friendly_message": None, 
+        "chart_path": None,  
+        "filing_info": None, 
+        "data_range": None,  
+    }
+
+    new_session = {
+        "session_id": session_id,
         "created_at": datetime.now().isoformat(),
         "files": [],
-        "state": {
-            "user_query": None,
-            "messages": [],
-            "should_continue": True,
-            "create_chart": False,
-            "company_name": None,
-            "ticker": None,
-            "filing_type": None,
-            "section": None,
-            "tool_result": None,
-            "structured_data": None,
-            "final_answer": None,
-            "report_data": None,
-            "price_history_json": None,
-            "news_results": None,
-            "time_period": None,
-            "intent": None,
-        }
+        "state": initial_state
     }
-    return new_session_id, sessions[new_session_id]
+
+    await db.sessions.insert_one(new_session)
+    print(f"✓ Created new session: {session_id}")
+    return session_id, new_session
 
 @app.get("/api/root")
 async def root():
+    """API root endpoint"""
     return {
         "message": "FinSight API",
         "version": "1.0.0",
@@ -328,31 +399,55 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "healthy",
-        "ollama_status": "connected" if llm else "disconnected",
-        "active_sessions": len(sessions)
-    }
+    """Health check endpoint"""
+    try:
+        count = await db.sessions.count_documents({})
+        return {
+            "status": "healthy",
+            "ollama_status": "connected" if llm else "disconnected",
+            "active_sessions": count
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
 
 @app.get("/api/sessions/{session_id}/files")
 async def get_session_files(session_id: str):
     """Get all files generated in a session"""
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    return {
-        "session_id": session_id,
-        "files": sessions[session_id].get("files", [])
-    }
+    try:
+        cursor = db.files.find({"session_id": session_id})
+        files = await cursor.to_list(length=5000)
+        
+        # Convert ObjectId to string
+        for file in files:
+            file["_id"] = str(file["_id"])
+            if "binary_id" in file:
+                file["binary_id"] = str(file["binary_id"])
+
+        return {
+            "session_id": session_id,
+            "files": files
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving files: {str(e)}")
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for real-time chat"""
     await websocket.accept()
 
-    # Always use get_or_create_session
-    session_id, session_data = get_or_create_session(session_id)
+    try:  
+        session_id, session_data = await get_or_create_session(session_id)
+    except Exception as e:
+        await websocket.send_json({
+            "type": "error",
+            "content": f"Failed to create session: {str(e)}"
+        })
+        await websocket.close()
+        return
 
-    # Inform client of session
     await websocket.send_json({
         "type": "session_created",
         "session_id": session_id
@@ -387,11 +482,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 break
 
             # Retrieve existing state dictionary
-            state_dict = session_data["state"]
+            state_dict = session_data["state"].copy()
 
             # Update the state
             state_dict["user_query"] = user_message
-            state_dict["messages"].append(HumanMessage(content=user_message))
 
             # Convert to FinanceAgentState
             try:
@@ -416,13 +510,52 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 except Exception:
                     updated_state = updated_state_obj
 
-                session_data["state"] = updated_state
+                # Create a deep copy for database storage
+                db_state = updated_state.copy()
+                
+                # Convert LangChain message objects to serializable dicts for database only
+                if "messages" in db_state and db_state["messages"]:
+                    serializable_messages = []
+                    for msg in db_state["messages"]:
+                        if isinstance(msg, (HumanMessage, AIMessage)):
+                            serializable_messages.append({
+                                "type": "human" if isinstance(msg, HumanMessage) else "ai",
+                                "content": msg.content
+                            })
+                        else:
+                            serializable_messages.append(msg)
+                    db_state["messages"] = serializable_messages
 
+                # Update database with serialized state
+                await db.sessions.update_one(
+                    {"session_id": session_id},
+                    {"$set": {"state": db_state}}
+                )
+
+                # Update in-memory session data with original state
+                session_data["state"] = updated_state
+                
                 # Get intent
                 intent = updated_state.get("intent")
                 
                 # Use user-friendly message if available
                 display_message = updated_state.get("user_friendly_message") or updated_state.get("final_answer", "I couldn't process that request.")
+
+                # Store conversation messages
+                await db.messages.insert_many([
+                    {
+                        "session_id": session_id,
+                        "role": "user",
+                        "content": user_message,
+                        "timestamp": datetime.now()
+                    },
+                    {
+                        "session_id": session_id,
+                        "role": "assistant",
+                        "content": display_message,
+                        "timestamp": datetime.now()
+                    }
+                ])
 
                 response_packet = {
                     "type": "message",
@@ -437,17 +570,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     chart_path = updated_state.get("chart_path")
                     
                     if chart_path and os.path.exists(chart_path):
-                        # Convert to URL path
-                        chart_url = "/" + chart_path.replace("\\", "/")
+                        # Convert to URL path (handle both Windows and Unix paths)
+                        chart_url = "/" + str(chart_path).replace("\\", "/")
                         response_packet["data"]["chart_url"] = chart_url
                         
-                        # Track file in session
-                        session_data["files"].append({
-                            "type": "chart",
-                            "path": chart_url,
-                            "name": os.path.basename(chart_path),
-                            "created_at": datetime.now().isoformat()
-                        })
+                        # Store file in database
+                        await store_file_dual(
+                            session_id=session_id,
+                            file_path=chart_path,
+                            file_type="chart",
+                            file_url=chart_url
+                        )
 
                 elif intent == "get_financial_news":
                     news = updated_state.get("news_results", [])
@@ -473,13 +606,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             report_url = f"/reports/{latest_report.name}"
                             response_packet["data"]["report_url"] = report_url
                             
-                            # Track file in session
-                            session_data["files"].append({
-                                "type": "report",
-                                "path": report_url,
-                                "name": latest_report.name,
-                                "created_at": datetime.now().isoformat()
-                            })
+                            # Store file in database
+                            await store_file_dual(
+                                session_id=session_id,
+                                file_path=str(latest_report),
+                                file_type="report",
+                                file_url=report_url
+                            )
 
                 # Send final agent message to UI
                 await websocket.send_json(response_packet)
@@ -493,10 +626,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
 
     except WebSocketDisconnect:
-        print(f"WebSocket disconnected for session {session_id}")
+        print(f"✓ WebSocket disconnected for session {session_id}")
 
     except Exception as e:
-        print(f"WebSocket error for session {session_id}: {e}")
+        print(f"✗ WebSocket error for session {session_id}: {e}")
         try:
             await websocket.close()
         except:
@@ -504,32 +637,177 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """Delete a session"""
-    if session_id in sessions:
-        del sessions[session_id]
+    """Delete a session and its messages/files metadata"""
+    try:
+        result = await db.sessions.delete_one({"session_id": session_id})
+        await db.messages.delete_many({"session_id": session_id})
+        await db.files.delete_many({"session_id": session_id})
+
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
         return {"message": f"Session {session_id} deleted"}
-    raise HTTPException(status_code=404, detail="Session not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 @app.get("/sessions/{session_id}/history")
 async def get_session_history(session_id: str):
     """Get conversation history for a session"""
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session = sessions[session_id]
-    messages = []
-    for msg in session["state"]["messages"]:
-        messages.append({
-            "role": "human" if isinstance(msg, HumanMessage) else "assistant",
-            "content": msg.content
-        })
-    
-    return {
-        "session_id": session_id,
-        "created_at": session["created_at"],
-        "message_count": len(messages),
-        "messages": messages
-    }
+    try:
+        result = await db.sessions.find_one({"session_id": session_id})
+        if not result:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        cursor = db.messages.find({"session_id": session_id}).sort("timestamp", 1)
+        messages = await cursor.to_list(length=5000)
+        
+        return {
+            "session_id": session_id,
+            "created_at": result["created_at"],
+            "message_count": len(messages),
+            "messages": [
+                {"role": m["role"], "content": m["content"], "timestamp": m["timestamp"]} 
+                for m in messages
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving history: {str(e)}")
+
+@app.get("/api/files/binary/{file_id}")
+async def get_file_binary(file_id: str):
+    """Download file binary from MongoDB"""
+    try:
+        file_doc = await db.file_binaries.find_one({"_id": ObjectId(file_id)})
+        if not file_doc:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return Response(
+            content=file_doc["binary_data"],
+            media_type=file_doc.get("mime_type", "application/octet-stream"),
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_doc["filename"]}"'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving file: {str(e)}")
+
+@app.get("/api/sessions/{session_id}/files/detailed")
+async def get_session_files_detailed(session_id: str):
+    """Get detailed file information for a session"""
+    try:
+        cursor = db.files.find({"session_id": session_id})
+        files = await cursor.to_list(length=5000)
+        
+        # Convert ObjectId to string for JSON serialization
+        for file in files:
+            file["_id"] = str(file["_id"])
+            if "binary_id" in file:
+                file["binary_id"] = str(file["binary_id"])
+                # Add download URL for MongoDB binary
+                file["download_url"] = f"/api/files/binary/{file['binary_id']}"
+        
+        return {
+            "session_id": session_id,
+            "file_count": len(files),
+            "total_size_bytes": sum(f.get("size_bytes", 0) for f in files),
+            "files": files
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving files: {str(e)}")
+
+@app.post("/api/files/restore/{session_id}")
+async def restore_files_from_db(session_id: str):
+    """Restore files from MongoDB to filesystem"""
+    try:
+        # Get all files for this session
+        cursor = db.files.find({"session_id": session_id})
+        files = await cursor.to_list(length=5000)
+        
+        restored = []
+        errors = []
+        
+        for file_meta in files:
+            try:
+                # Get binary data
+                binary_doc = await db.file_binaries.find_one({"_id": file_meta["binary_id"]})
+                if not binary_doc:
+                    errors.append(f"Binary not found for {file_meta['name']}")
+                    continue
+                
+                # Reconstruct filesystem path from URL
+                file_path = file_meta["path"].lstrip("/")
+                
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                
+                # Write file to filesystem
+                with open(file_path, 'wb') as f:
+                    f.write(binary_doc["binary_data"])
+                
+                restored.append(file_meta["name"])
+                
+            except Exception as e:
+                errors.append(f"Error restoring {file_meta['name']}: {str(e)}")
+        
+        return {
+            "session_id": session_id,
+            "restored_count": len(restored),
+            "restored_files": restored,
+            "errors": errors
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
+
+@app.delete("/api/sessions/{session_id}/complete")
+async def delete_session_complete(session_id: str):
+    """Completely delete a session including all files and binaries"""
+    try:
+        # Delete from all collections
+        session_result = await db.sessions.delete_one({"session_id": session_id})
+        messages_result = await db.messages.delete_many({"session_id": session_id})
+        
+        # Get file metadata to delete binaries
+        files_cursor = db.files.find({"session_id": session_id})
+        files = await files_cursor.to_list(length=5000)
+        
+        # Delete binary data
+        binary_ids = [f["binary_id"] for f in files if "binary_id" in f]
+        binaries_result = await db.file_binaries.delete_many({"_id": {"$in": binary_ids}})
+        
+        # Delete file metadata
+        files_result = await db.files.delete_many({"session_id": session_id})
+        
+        # Optionally delete filesystem files
+        for file_meta in files:
+            try:
+                file_path = file_meta["path"].lstrip("/")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                print(f"⚠ Warning: Could not delete {file_path}: {e}")
+        
+        if session_result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {
+            "message": f"Session {session_id} completely deleted",
+            "deleted": {
+                "sessions": session_result.deleted_count,
+                "messages": messages_result.deleted_count,
+                "files": files_result.deleted_count,
+                "binaries": binaries_result.deleted_count
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

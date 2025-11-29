@@ -11,7 +11,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from langchain_core.messages import AIMessage, HumanMessage 
 
 console = Console()
-
+from dotenv import load_dotenv
+load_dotenv()
 def get_financial_news_node(state: FinanceAgentState) -> dict:
     """
     Fetches recent financial news articles for a company name found in the state.

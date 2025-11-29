@@ -17,3 +17,5 @@ fastapi
 uvicorn[standard]
 websockets
 pydantic
+motor 
+pymongo
