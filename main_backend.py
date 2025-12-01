@@ -36,6 +36,11 @@ app.add_middleware(
 
 from fastapi.staticfiles import StaticFiles
 
+# Create directories if missing
+os.makedirs("charts", exist_ok=True)
+os.makedirs("reports", exist_ok=True)
+os.makedirs("static", exist_ok=True)
+
 # Mount static directories for serving files
 app.mount("/charts", StaticFiles(directory="charts"), name="charts")
 app.mount("/reports", StaticFiles(directory="reports"), name="reports")
@@ -73,66 +78,94 @@ def check_for_chart_keywords(query: str) -> bool:
     query = query.lower()
     return any(keyword in query for keyword in ["chart", "plot", "graph", "visualize", "visualise"])
 
+
 def classify_intent(state: FinanceAgentState) -> dict:
-    """Classify user intent using LLM"""
+# Check if LLM is available
+    if llm is None:
+        # Fallback to keyword-based classification
+        query = state["user_query"].lower()
+        if any(word in query for word in ["chart", "plot", "graph", "price", "stock"]):
+            return {"intent": "get_stock_data_and_chart"}
+        elif any(word in query for word in ["news", "article", "headline"]):
+            return {"intent": "get_financial_news"}
+        elif any(word in query for word in ["filing", "10-k", "10-q", "sec"]):
+            return {"intent": "get_sec_filing_section"}
+        elif any(word in query for word in ["report", "analysis", "comprehensive"]):
+            return {"intent": "get_report"}
+        else:
+            return {"intent": "greeting_help"}
+    
     user_query = state["user_query"]
     
-    few_shot_prompt = f"""You are an expert at routing a user's query about financial analysis to the correct tool.
+    # Build conversation context
+    history_text = ""
+    for msg in state["messages"][-6:]:
+        role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+        history_text += f"{role}: {msg.content}\n"
 
-Your only job is to return a JSON object with a single key, "step", which indicates the correct tool to use.
+    few_shot_prompt = f"""
+Conversation so far:
+{history_text}
 
-The available tools are:
-- get_sec_filing_section
-- get_financial_news
-- get_report
-- greeting_help
-- get_stock_data_and_chart
+Stored context:
+- last intent: {state.get("intent")}
+- last company: {state.get("company_name")}
+- last ticker: {state.get("ticker")}
 
-Examples:
+User's latest message:
+{user_query}
 
-Queries for "get_sec_filing_section":
-- Query: What were the business risks listed in Apple's (AAPL) most recent 10-K?
-- JSON: {{"step": "get_sec_filing_section"}}
-
-Queries for "get_financial_news":
-- Query: Summarize recent news about Tesla (TSLA).
-- JSON: {{"step": "get_financial_news"}}
-
-Queries for "get_report":
-- Query: Generate a full analyst report for Salesforce (CRM).
-- JSON: {{"step": "get_report"}}
-
-Queries for "greeting_help":
-- Query: Hello, can you help me?
-- JSON: {{"step": "greeting_help"}}
-
-Queries for "get_stock_data_and_chart":
-- Query: What is the current P/E ratio for NVIDIA (NVDA)?
-- JSON: {{"step": "get_stock_data_and_chart"}}
-
-Now, based on the user's query below, provide the JSON object.
-Query: {user_query}
-JSON:
+Decide correct tool. Return JSON: {{"step":"..."}}
+Possible steps: greeting_help, get_stock_data_and_chart, get_financial_news, get_sec_filing_section, get_report
 """
-    
+
     try:
-        response_str = llm.invoke(few_shot_prompt)
+        response_str = llm.invoke(
+            state["messages"] + [HumanMessage(content=few_shot_prompt)]
+        )
         decision_json = json.loads(response_str)
-        intent = decision_json["step"]
+        intent = decision_json.get("step", "greeting_help")
+    except json.JSONDecodeError as e:
+        print(f"JSON decode error in classify_intent: {e}")
+        intent = state.get("intent") or "greeting_help"
     except Exception as e:
-        print(f"Intent classification error: {e}")
-        intent = "greeting_help"
+        print(f"Error in classify_intent: {e}")
+        intent = state.get("intent") or "greeting_help"
+
+    return {"intent": intent}
+
+
+
+def merge_entities(state, updates):
+    # Safely merge new entities without overwriting previous ones with None
+    if updates is None:
+        return state
+
+    if updates.get("company_name"):
+        state["company_name"] = updates["company_name"]
+
+    if updates.get("ticker"):
+        state["ticker"] = updates["ticker"]
+
+    if updates.get("intent"):
+        state["intent"] = updates["intent"]
     
-    updates = {
-        "intent": intent,
-        "messages": [HumanMessage(content=user_query)],
-    }
+    # ADD THIS - Handle chart flag
+    if "create_chart" in updates:
+        state["create_chart"] = updates["create_chart"]
     
-    if intent == "get_stock_data_and_chart":
-        is_chart_requested = check_for_chart_keywords(user_query)
-        updates["create_chart"] = is_chart_requested
+    # ADD THIS - Handle filing type and section
+    if updates.get("filing_type"):
+        state["filing_type"] = updates["filing_type"]
     
-    return updates
+    if updates.get("section"):
+        state["section"] = updates["section"]
+    
+    if updates.get("time_period"):
+        state["time_period"] = updates["time_period"]
+
+    return state
+
 
 def greeting_help_node(state: FinanceAgentState) -> dict:
     instructions = """Hello! 😉
@@ -198,12 +231,20 @@ def create_user_friendly_message(intent: str, state: dict) -> str:
     elif intent == "get_sec_filing_section":
         filing_type = state.get("filing_type", "10-K")
         section = state.get("section", "")
-        tool_result = state.get("tool_result", "")
+        tool_result = state.get("tool_result")
+        
+        # Handle None or empty result
+        if not tool_result:
+            return f"📋 Sorry, I couldn't retrieve the {filing_type} filing for **{company_name}**. The filing might not be available or there was an error accessing it."
         
         # Create a preview of the content (first 500 chars)
         preview = tool_result[:500] + "..." if len(tool_result) > 500 else tool_result
         
-        message = f"📋 Here's what I found in **{company_name}'s** latest **{filing_type}** filing:\n\n{preview}"
+        message = f"📋 Here's what I found in **{company_name}'s** latest **{filing_type}** filing"
+        if section:
+            message += f" ({section})"
+        message += f":\n\n{preview}"
+        
         return message
     
     elif intent == "get_report":
@@ -220,43 +261,56 @@ def create_user_friendly_message(intent: str, state: dict) -> str:
 async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     """Process a query through the agent workflow"""
     
-    # Extract entities
-    state.update(extract_entities_node(state))
+    # Run synchronous node functions in thread pool
+    entities = await asyncio.to_thread(extract_entities_node, state)
+    state = merge_entities(state, entities)
     
-    # Classify intent
-    state.update(classify_intent(state))
+    # Classify intent (also run in thread if synchronous)
+    intent_update = await asyncio.to_thread(classify_intent, state)
+    state.update(intent_update)
     
     intent = state.get("intent")
     
     # Route based on intent
     if intent == "greeting_help":
-        state.update(greeting_help_node(state))
+        result = await asyncio.to_thread(greeting_help_node, state)
+        state.update(result)
         
     elif intent == "get_stock_data_and_chart":
-        state.update(get_stock_data_and_chart_node(state))
-        # Create user-friendly message
+        result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
+        state.update(result)
         friendly_message = create_user_friendly_message(intent, state)
         state["user_friendly_message"] = friendly_message
         
     elif intent == "get_financial_news":
-        state.update(get_financial_news_node(state))
+        result = await asyncio.to_thread(get_financial_news_node, state)
+        state.update(result)
         friendly_message = create_user_friendly_message(intent, state)
         state["user_friendly_message"] = friendly_message
         
     elif intent == "get_sec_filing_section":
-        state.update(get_sec_filing_section_node(state))
+        result = await asyncio.to_thread(get_sec_filing_section_node, state)
+        state.update(result)
         friendly_message = create_user_friendly_message(intent, state)
         state["user_friendly_message"] = friendly_message
         
     elif intent == "get_report":
         # Execute report workflow
-        state.update(get_stock_data_and_chart_node(state))
-        state.update(get_financial_news_node(state))
-        state.update(get_sec_filing_section_node(state))
-        state.update(curate_report_node(state))
+        stock_result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
+        state.update(stock_result)
+        
+        news_result = await asyncio.to_thread(get_financial_news_node, state)
+        state.update(news_result)
+        
+        sec_result = await asyncio.to_thread(get_sec_filing_section_node, state)
+        state.update(sec_result)
+        
+        report_result = await asyncio.to_thread(curate_report_node, state)
+        state.update(report_result)
+        
         friendly_message = create_user_friendly_message(intent, state)
         state["user_friendly_message"] = friendly_message
-    
+
     return state
 
 def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, Dict]:
@@ -359,13 +413,20 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     })
 
     try:
-        # Send initial greeting
-        greeting_state = greeting_help_node(session_data["state"])
-        await websocket.send_json({
-            "type": "message",
-            "content": greeting_state["final_answer"],
-            "intent": "greeting"
-        })
+        # Send initial greeting only if no messages yet
+        if not session_data["state"]["messages"]:
+            greeting_state = greeting_help_node(session_data["state"])
+            greeting_message = greeting_state.get("final_answer", "")  # Add .get() with default
+            
+            if greeting_message:  # Only send if we have content
+                await websocket.send_json({
+                    "type": "message",
+                    "content": greeting_message,
+                    "intent": "greeting"
+                })
+                
+                # Add greeting to conversation history
+                session_data["state"]["messages"].append(AIMessage(content=greeting_message))
 
         # Main loop
         while True:
@@ -423,6 +484,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 
                 # Use user-friendly message if available
                 display_message = updated_state.get("user_friendly_message") or updated_state.get("final_answer", "I couldn't process that request.")
+                
+                # Ensure it's a string, not None
+                if not isinstance(display_message, str) or not display_message:
+                    display_message = "I couldn't process that request."
 
                 response_packet = {
                     "type": "message",
@@ -483,13 +548,25 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
                 # Send final agent message to UI
                 await websocket.send_json(response_packet)
+                
+                # Add assistant reply to the UPDATED state (not old state_dict)
+                if display_message:  # Only add if we have content
+                    session_data["state"]["messages"].append(
+                        AIMessage(content=display_message)
+                    )
 
             except Exception as e:
                 import traceback
-                traceback.print_exc()
+                error_details = traceback.format_exc()
+                print(f"WebSocket error for session {session_id}:")
+                print(error_details)
+                
+                # Send sanitized error to client
+                error_message = str(e) if not isinstance(e, (IOError, OSError)) else "An error occurred processing your request"
+                
                 await websocket.send_json({
                     "type": "error",
-                    "content": f"Error processing request: {str(e)}"
+                    "content": error_message
                 })
 
     except WebSocketDisconnect:
@@ -504,11 +581,23 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """Delete a session"""
-    if session_id in sessions:
-        del sessions[session_id]
-        return {"message": f"Session {session_id} deleted"}
-    raise HTTPException(status_code=404, detail="Session not found")
+    """Delete a session and clean up associated files"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = sessions[session_id]
+    
+    # Clean up files (optional - you may want to keep them)
+    for file_info in session.get("files", []):
+        file_path = file_info["path"].lstrip("/")
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(f"Could not delete file {file_path}: {e}")
+    
+    del sessions[session_id]
+    return {"message": f"Session {session_id} deleted"}
 
 @app.get("/sessions/{session_id}/history")
 async def get_session_history(session_id: str):

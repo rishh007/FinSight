@@ -48,11 +48,13 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
     
     try:
         headers = {'Authorization': f'Bearer {news_api_key}'}
+        # In get_financial_news_node, around line 33
         params = {
-            'q': company_name,
+            'q': f'"{company_name}" AND (stock OR shares OR earnings OR market OR financial)',  # More specific search
             'language': 'en',
             'sortBy': 'publishedAt',
-            'pageSize': 2
+            'pageSize': 5,  # Get more to filter later
+            'domains': 'reuters.com,bloomberg.com,cnbc.com,wsj.com,marketwatch.com,seekingalpha.com'  # Financial sources only
         }
         
         with console.status(f"[bold green]Searching for news articles about {company_name}..."):
