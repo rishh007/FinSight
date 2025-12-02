@@ -202,7 +202,7 @@
         .metric-row:last-child { border-bottom: none; }
         .metric-label { color: rgba(255,255,255,0.7); font-size: 13px; }
         .metric-value { color: var(--primary-pink); font-weight: 600; font-size: 14px; }
-
+/* 
         .news-carousel { display: flex; gap: 15px; overflow-x: auto; padding: 15px 0; margin-top: 15px; }
         .news-card { min-width: 320px; max-width: 320px; background: rgba(10,8,14,0.6); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.05); transition: all 0.3s ease; }
         .news-card:hover { transform: translateY(-4px); border-color: rgba(255,77,166,0.2); box-shadow: 0 8px 24px rgba(255,77,166,0.1); }
@@ -210,7 +210,70 @@
         .news-meta { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 12px; }
         .news-snippet { font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.5; margin-bottom: 12px; }
         .news-link { color: var(--primary-pink); text-decoration: none; font-size: 13px; font-weight: 500; transition: color 0.3s; }
-        .news-link:hover { color: var(--light-olive); }
+        .news-link:hover { color: var(--light-olive); } */
+        .news-carousel { 
+    display: flex; 
+    gap: 15px; 
+    overflow-x: auto; 
+    padding: 15px 0; 
+    margin-top: 15px; 
+}
+
+.news-card { 
+    min-width: 320px; 
+    max-width: 320px; 
+    background: rgba(10,8,14,0.6); 
+    border-radius: 12px; 
+    padding: 16px; 
+    border: 1px solid rgba(255,255,255,0.05); 
+    transition: all 0.3s ease; 
+    /* prevent long text from breaking the card */
+    overflow: hidden;
+}
+
+.news-card:hover { 
+    transform: translateY(-4px); 
+    border-color: rgba(255,77,166,0.2); 
+    box-shadow: 0 8px 24px rgba(255,77,166,0.1); 
+}
+
+.news-title { 
+    font-size: 15px; 
+    font-weight: 600; 
+    color: var(--soft-white); 
+    margin-bottom: 10px; 
+    line-height: 1.4; 
+}
+
+.news-meta { 
+    font-size: 11px; 
+    color: rgba(255,255,255,0.5); 
+    margin-bottom: 12px; 
+}
+
+/* 🔥 FIX: Stop URL text from overflowing */
+.news-snippet, 
+.news-link { 
+    font-size: 13px; 
+    color: rgba(255,255,255,0.7); 
+    line-height: 1.5; 
+    margin-bottom: 12px; 
+    overflow-wrap: break-word; 
+    word-break: break-word; 
+}
+
+.news-link { 
+    color: var(--primary-pink); 
+    text-decoration: none; 
+    font-size: 13px; 
+    font-weight: 500; 
+    transition: color 0.3s; 
+}
+
+.news-link:hover { 
+    color: var(--light-olive); 
+}
+
 
         .filing-section { margin-top: 15px; background: rgba(10,8,14,0.4); border-radius: 8px; padding: 15px; border: 1px solid rgba(255,255,255,0.05); }
         .filing-preview { color: rgba(255,255,255,0.85); font-size: 13px; line-height: 1.6; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
