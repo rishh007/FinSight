@@ -1,3 +1,6 @@
 .env
 reports/
 charts/
+venv/
+__pycache__/
+*.pyc
