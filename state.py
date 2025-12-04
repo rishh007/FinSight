@@ -34,5 +34,5 @@ class FinanceAgentState(TypedDict):
     final_answer: Optional[str]
     report_data: Optional[dict]  # get_report
 
-
+    rag_answer: Optional[str]
 

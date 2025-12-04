@@ -11,6 +11,231 @@ let ws = null;
         const filesBtn = document.getElementById('filesBtn');
         const filesSidebar = document.getElementById('filesSidebar');
         const closeSidebarBtn = document.getElementById('closeSidebar');
+let currentUser = null;
+let authToken = null;
+const authModal = document.getElementById('authModal');
+const loginBtn = document.getElementById('loginBtn');
+const registerBtn = document.getElementById('registerBtn');
+const closeModalBtn = document.getElementById('closeModal');
+const authButtons = document.getElementById('authButtons');
+const userInfo = document.getElementById('userInfo');
+const userName = document.getElementById('userName');
+const logoutBtn = document.getElementById('logoutBtn');
+const chatContainer = document.getElementById('chatContainer');
+const authRequiredMessage = document.getElementById('authRequiredMessage');
+
+const loginForm = document.getElementById('loginForm');
+const registerForm = document.getElementById('registerForm');
+const loginFormElement = document.getElementById('loginFormElement');
+const registerFormElement = document.getElementById('registerFormElement');
+const switchToRegister = document.getElementById('switchToRegister');
+const switchToLogin = document.getElementById('switchToLogin');
+
+
+function checkAuthStatus() {
+    const token = localStorage.getItem('authToken');
+    const user = localStorage.getItem('currentUser');
+    
+    if (token && user) {
+        authToken = token;
+        currentUser = JSON.parse(user);
+        updateUIForAuth(true);
+        connectWebSocket();
+    } else {
+        updateUIForAuth(false);
+    }
+}
+
+function updateUIForAuth(isAuthenticated) {
+    if (isAuthenticated) {
+        authButtons.style.display = 'none';
+        userInfo.style.display = 'flex';
+        userName.textContent = currentUser.username;
+        chatContainer.classList.remove('chat-disabled');
+        authRequiredMessage.style.display = 'none';
+    } else {
+        authButtons.style.display = 'flex';
+        userInfo.style.display = 'none';
+        chatContainer.classList.add('chat-disabled');
+        authRequiredMessage.style.display = 'block';
+    }
+}
+
+loginBtn.addEventListener('click', () => {
+    authModal.classList.add('active');
+    loginForm.style.display = 'block';
+    registerForm.style.display = 'none';
+    clearFormErrors();
+});
+
+// Open register modal
+registerBtn.addEventListener('click', () => {
+    authModal.classList.add('active');
+    loginForm.style.display = 'none';
+    registerForm.style.display = 'block';
+    clearFormErrors();
+});
+
+// Close modal
+closeModalBtn.addEventListener('click', () => {
+    authModal.classList.remove('active');
+    clearFormErrors();
+});
+
+
+// Close modal on background click
+authModal.addEventListener('click', (e) => {
+    if (e.target === authModal) {
+        authModal.classList.remove('active');
+        clearFormErrors();
+    }
+});
+
+// Switch to register form
+switchToRegister.addEventListener('click', () => {
+    loginForm.style.display = 'none';
+    registerForm.style.display = 'block';
+    clearFormErrors();
+});
+
+// Switch to login form
+switchToLogin.addEventListener('click', () => {
+    registerForm.style.display = 'none';
+    loginForm.style.display = 'block';
+    clearFormErrors();
+});
+
+// Handle login form submission
+loginFormElement.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const username = document.getElementById('loginUsername').value;
+    const password = document.getElementById('loginPassword').value;
+    
+    try {
+        const response = await fetch('http://localhost:5500/auth/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Store token and user info
+            authToken = data.access_token;
+            currentUser = data.user;
+            localStorage.setItem('authToken', authToken);
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            
+            // Update UI
+            updateUIForAuth(true);
+            authModal.classList.remove('active');
+            clearFormErrors();
+            loginFormElement.reset();
+            
+            // Connect WebSocket
+            connectWebSocket();
+        } else {
+            showError('loginError', data.detail || 'Login failed');
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        showError('loginError', 'Connection error. Please try again.');
+    }
+});
+
+// Handle register form submission
+registerFormElement.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const username = document.getElementById('registerUsername').value;
+    const email = document.getElementById('registerEmail').value;
+    const password = document.getElementById('registerPassword').value;
+    
+    // Basic validation
+    if (password.length < 6) {
+        showError('registerError', 'Password must be at least 6 characters long');
+        return;
+    }
+    
+    try {
+        const response = await fetch('http://localhost:5500/auth/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ username, email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Show success message
+            showSuccess('registerSuccess', 'Account created successfully! Please log in.');
+            registerFormElement.reset();
+            
+            // Switch to login form after 2 seconds
+            setTimeout(() => {
+                registerForm.style.display = 'none';
+                loginForm.style.display = 'block';
+                clearFormErrors();
+            }, 2000);
+        } else {
+            showError('registerError', data.detail || 'Registration failed');
+        }
+    } catch (error) {
+        console.error('Registration error:', error);
+        showError('registerError', 'Connection error. Please try again.');
+    }
+});
+
+// Logout
+logoutBtn.addEventListener('click', () => {
+    // Clear auth data
+    authToken = null;
+    currentUser = null;
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('currentUser');
+    
+    // Close WebSocket
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
+    
+    // Update UI
+    updateUIForAuth(false);
+    
+    // Clear chat
+    messagesContainer.innerHTML = '';
+    const welcome = createWelcomeMessage();
+    messagesContainer.appendChild(welcome);
+});
+
+// Show error message
+function showError(elementId, message) {
+    const errorElement = document.getElementById(elementId);
+    errorElement.textContent = message;
+    errorElement.style.display = 'block';
+}
+
+// Show success message
+function showSuccess(elementId, message) {
+    const successElement = document.getElementById(elementId);
+    successElement.textContent = message;
+    successElement.style.display = 'block';
+}
+
+// Clear form errors
+function clearFormErrors() {
+    document.getElementById('loginError').style.display = 'none';
+    document.getElementById('registerError').style.display = 'none';
+    document.getElementById('registerSuccess').style.display = 'none';
+}
+
 
 // Toggle files sidebar
 filesBtn.addEventListener('click', async () => {
@@ -20,10 +245,10 @@ filesBtn.addEventListener('click', async () => {
     }
 });
 
+
 closeSidebarBtn.addEventListener('click', () => {
     filesSidebar.classList.remove('open');
 });
-
 // Load session files
 async function loadSessionFiles() {
     try {
@@ -106,6 +331,11 @@ if (document.readyState === 'loading') {
 
         // Initialize WebSocket
         function connectWebSocket() {
+             if (!authToken) {
+        console.log('Cannot connect: Not authenticated');
+        return;
+    }
+    
             sessionId = 'session_' + Date.now();
             // adjust ws URL if needed
             ws = new WebSocket(`ws://localhost:5500/ws/${sessionId}`);
@@ -154,16 +384,25 @@ if (document.readyState === 'loading') {
                 statusText.textContent = 'Disconnected';
                 console.log('WebSocket disconnected');
                 // Attempt to reconnect after 3 seconds
-                setTimeout(() => {
-                    if (!ws || ws.readyState === WebSocket.CLOSED) {
-                        connectWebSocket();
-                    }
-                }, 3000);
+               
+                 // Only attempt reconnect if user is still authenticated
+        if (authToken) {
+            setTimeout(() => {
+                if (!ws || ws.readyState === WebSocket.CLOSED) {
+                    connectWebSocket();
+                }
+            }, 3000);
+        }
             };
         }
 
         // Send message
         function sendMessage() {
+             if (!authToken) {
+        alert('Please log in to send messages');
+        return;
+    }
+
             const message = messageInput.value.trim();
             if (!message || !ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -177,11 +416,32 @@ if (document.readyState === 'loading') {
 
         // Quick message
         function sendQuickMessage(message) {
+            if (!authToken) {
+        alert('Please log in to send messages');
+        return;
+    }
             messageInput.value = message;
             sendMessage();
         }
         // Expose to global scope for inline onclick handlers
         window.sendQuickMessage = sendQuickMessage;
+
+        // Create welcome message element
+function createWelcomeMessage() {
+    const welcome = document.createElement('div');
+    welcome.className = 'welcome-message';
+    welcome.innerHTML = `
+        <div class="welcome-title">Welcome to FinSight 💹</div>
+        <p>Your AI-powered financial analyst assistant. Ask me anything about stocks, financial news, SEC filings, or request comprehensive analyst reports.</p>
+        <div class="quick-actions" id="quickActions">
+            <button class="quick-action-btn" onclick="sendQuickMessage('Show me Apple stock chart')">📊 Apple Stock Chart</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('Recent news about Tesla')">📰 Tesla News</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('What is the P/E ratio for NVIDIA?')">💹 NVIDIA P/E Ratio</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('Generate report for Microsoft')">📄 Microsoft Report</button>
+        </div>
+    `;
+    return welcome;
+}
 
         // Add message to chat
         // function addMessage(role, content, intent = null, data = null) {
@@ -427,18 +687,7 @@ function createDownloadButton(reportUrl) {
         clearChatBtn.addEventListener('click', () => {
             // preserve session info but clear messages area and re-show welcome
             messagesContainer.innerHTML = '';
-            const welcome = document.createElement('div');
-            welcome.className = 'welcome-message';
-            welcome.innerHTML = `
-                <div class="welcome-title">👋 Welcome to FinSight</div>
-                <p>Your AI-powered financial analyst assistant. Ask me anything about stocks, financial news, SEC filings, or request comprehensive analyst reports.</p>
-                <div class="quick-actions" id="quickActions">
-                    <button class="quick-action-btn" onclick="sendQuickMessage('Show me Apple stock chart')">📊 Apple Stock Chart</button>
-                    <button class="quick-action-btn" onclick="sendQuickMessage('Recent news about Tesla')">📰 Tesla News</button>
-                    <button class="quick-action-btn" onclick="sendQuickMessage('What is the P/E ratio for NVIDIA?')">💹 NVIDIA P/E Ratio</button>
-                    <button class="quick-action-btn" onclick="sendQuickMessage('Generate report for Microsoft')">📄 Microsoft Report</button>
-                </div>
-            `;
+            const welcome = createWelcomeMessage();
             messagesContainer.appendChild(welcome);
             messagesContainer.scrollTop = 0;
         });

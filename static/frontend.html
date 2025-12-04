@@ -81,6 +81,227 @@
         @keyframes pulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,77,166,0.7);} 50% { transform: scale(1.05); box-shadow: 0 0 20px 10px rgba(255,77,166,0);} }
         .tagline { color: rgba(255,255,255,0.6); font-size: 16px; letter-spacing: 2px; text-transform: uppercase; }
 
+        /* ---------- Auth buttons in header ---------- */
+        .auth-buttons {
+            position: absolute;
+            top: 100px;
+            right: 30px;
+            display: flex;
+            gap: 12px;
+            z-index: 100;
+        }
+        .auth-btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,77,166,0.3);
+            background: rgba(255,77,166,0.1);
+            color: var(--primary-pink);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .auth-btn:hover {
+            background: rgba(255,77,166,0.2);
+            transform: translateY(-2px);
+        }
+        .auth-btn.primary {
+            background: linear-gradient(135deg, var(--primary-pink) 0%, var(--light-olive) 100%);
+            color: var(--dark-bg);
+            border: none;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary-pink) 0%, var(--light-olive) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+        .user-name {
+            color: var(--soft-white);
+            font-weight: 600;
+        }
+        .logout-btn {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.7);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: white;
+        }
+
+        /* ---------- Auth Modal ---------- */
+        .auth-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease-out;
+        }
+        .auth-modal.active {
+            display: flex;
+        }
+        .auth-modal-content {
+            background: linear-gradient(180deg, rgba(20,15,30,0.95), rgba(15,10,25,0.95));
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+            padding: 40px;
+            max-width: 450px;
+            width: 90%;
+            position: relative;
+            animation: slideUp 0.4s ease-out;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .auth-modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.6);
+            font-size: 24px;
+            cursor: pointer;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.3s;
+        }
+        .auth-modal-close:hover {
+            background: rgba(255,255,255,0.1);
+            color: white;
+        }
+        .auth-modal-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary-pink);
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .auth-modal-subtitle {
+            color: rgba(255,255,255,0.6);
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .form-label {
+            color: rgba(255,255,255,0.8);
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .form-input {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 77, 166, 0.2);
+            border-radius: 10px;
+            padding: 14px 16px;
+            color: #fff;
+            font-size: 15px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+        .form-input:focus {
+            border-color: #FF4DA6;
+            box-shadow: 0 0 0 3px rgba(255,77,166,0.1);
+        }
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+        .form-submit {
+            background: linear-gradient(135deg, var(--primary-pink) 0%, var(--light-olive) 100%);
+            color: var(--dark-bg);
+            border: none;
+            border-radius: 10px;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        .form-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255,77,166,0.3);
+        }
+        .form-submit:active {
+            transform: translateY(0);
+        }
+        .form-switch {
+            text-align: center;
+            margin-top: 20px;
+            color: rgba(255,255,255,0.6);
+            font-size: 14px;
+        }
+        .form-switch-link {
+            color: var(--primary-pink);
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .form-switch-link:hover {
+            text-decoration: underline;
+        }
+        .form-error {
+            background: rgba(255,50,50,0.1);
+            border: 1px solid rgba(255,50,50,0.3);
+            border-radius: 8px;
+            padding: 12px;
+            color: #ff6b6b;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+        .form-success {
+            background: rgba(50,255,50,0.1);
+            border: 1px solid rgba(50,255,50,0.3);
+            border-radius: 8px;
+            padding: 12px;
+            color: #6bff6b;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
         /* ---------- Chat container (single consolidated definition) ---------- */
         .chat-container {
             position: relative;
@@ -259,11 +480,42 @@
             .container { padding: 18px 12px; }
             .chat-header { padding: 14px 16px; }
             .input-container { padding: 16px; }
+            .auth-buttons { top: 10px; right: 10px; }
         }
 
         /* ---------- Small animations ---------- */
         @keyframes fadeInDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Chat disabled overlay */
+        .chat-disabled {
+            pointer-events: none;
+            opacity: 0.5;
+        }
+        .auth-required-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10,8,14,0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,77,166,0.3);
+            border-radius: 16px;
+            padding: 30px 40px;
+            text-align: center;
+            z-index: 10;
+        }
+        .auth-required-message h3 {
+            color: var(--primary-pink);
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        .auth-required-message p {
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
@@ -293,10 +545,85 @@
         </svg>
     </div>
 
+     <!-- Auth Buttons -->
+    <div class="auth-buttons" id="authButtons">
+        <button class="auth-btn" id="loginBtn">Login</button>
+        <button class="auth-btn primary" id="registerBtn">Sign Up</button>
+    </div>
+
+    <!-- User Info (hidden by default) -->
+    <div class="auth-buttons" id="userInfo" style="display: none;">
+        <div class="user-info">
+            <div class="user-avatar">👤</div>
+            <span class="user-name" id="userName"></span>
+            <button class="logout-btn" id="logoutBtn">Logout</button>
+        </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div class="auth-modal" id="authModal">
+        <div class="auth-modal-content">
+            <button class="auth-modal-close" id="closeModal">×</button>
+            
+            <!-- Login Form -->
+            <div id="loginForm" style="display: none;">
+                <h2 class="auth-modal-title">Welcome Back</h2>
+                <p class="auth-modal-subtitle">Log in to access your financial insights</p>
+                
+                <div id="loginError" class="form-error" style="display: none;"></div>
+                
+                <form class="auth-form" id="loginFormElement">
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-input" id="loginUsername" placeholder="Enter your username" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-input" id="loginPassword" placeholder="Enter your password" required>
+                    </div>
+                    <button type="submit" class="form-submit">Log In</button>
+                </form>
+                
+                <div class="form-switch">
+                    Don't have an account? <span class="form-switch-link" id="switchToRegister">Sign up</span>
+                </div>
+            </div>
+
+            <!-- Register Form -->
+            <div id="registerForm" style="display: none;">
+                <h2 class="auth-modal-title">Create Account</h2>
+                <p class="auth-modal-subtitle">Join FinSight to start analyzing financial data</p>
+                
+                <div id="registerError" class="form-error" style="display: none;"></div>
+                <div id="registerSuccess" class="form-success" style="display: none;"></div>
+                
+                <form class="auth-form" id="registerFormElement">
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-input" id="registerUsername" placeholder="Choose a username" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="registerEmail" placeholder="Enter your email" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-input" id="registerPassword" placeholder="Create a password" required>
+                    </div>
+                    <button type="submit" class="form-submit">Sign Up</button>
+                </form>
+                
+                <div class="form-switch">
+                    Already have an account? <span class="form-switch-link" id="switchToLogin">Log in</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Connection Status -->
     <div id="connectionStatus" class="connection-status disconnected" style="position: fixed; top: 20px; right: 20px; padding: 12px 20px; backdrop-filter: blur(20px); border-radius: 12px; font-size: 14px; z-index: 1000; display: flex; align-items: center; gap: 8px;">
         <div class="status-indicator"></div>
-        <span id="statusText">Connecting...</span>
+        <span id="statusText">Disconnected</span>
     </div>
 
     <!-- Main Container -->
@@ -311,7 +638,14 @@
         </div>
 
         <!-- Chat Container -->
-        <div class="chat-container">
+        <div class="chat-container" id="chatContainer">
+
+             <!-- Auth Required Message (shown when not logged in) -->
+            <div class="auth-required-message" id="authRequiredMessage">
+                <h3>🔒 Authentication Required</h3>
+                <p>Please log in to access the financial analyst assistant</p>
+            </div>
+
             <!-- Chat Header -->
             <div class="chat-header">
                 <div class="chat-title">

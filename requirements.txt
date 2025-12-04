@@ -4,9 +4,9 @@ pandas
 matplotlib
 newsapi
 bs4
-yfinance
+yfinance>=0.2.40
 markdown
-langchain_ollama
+langchain-ollama==0.2.3
 weasyprint
 fpdf
 langgraph
@@ -19,3 +19,21 @@ websockets
 pydantic
 motor 
 pymongo
+faiss-cpu==1.13.0
+langchain==0.3.0
+langchain-community==0.3.0
+langchain-core==0.3.0
+langchain-huggingface==0.1.0
+langchain-text-splitters==0.3.0
+numpy==1.26.4
+rank-bm25==0.2.2
+sentence-transformers==5.1.2
+unstructured==0.18.3
+unstructured-client==0.42.4
+unstructured_inference==1.1.2
+unstructured.pytesseract==0.3.15
+passlib== 1.7.4
+PyJWT
+python-jose
+email-validator
+bcrypt==4.0.1
