@@ -1,5 +1,4 @@
 #  main_backend.py 
-
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException,Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,32 +7,30 @@ import json
 import uuid
 import os
 import base64
-from datetime import datetime
+from datetime import datetime,timedelta
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
 import asyncio
 from pathlib import Path
 from database import db, init_db, close_db
 from contextlib import asynccontextmanager
-
+import re
 from state import FinanceAgentState
 from workflows.extract_entities import extract_entities_node
 from workflows.get_stock_data_and_chart import get_stock_data_and_chart_node
 from workflows.get_financial_news import get_financial_news_node
 from workflows.get_sec_filing_section import get_sec_filing_section_node
 from workflows.curate_report import curate_report_node
-from fastapi.responses import FileResponse
+from workflows.rag_filing_analysis import run_rag_query
 from langchain_ollama import OllamaLLM
 from fastapi.staticfiles import StaticFiles
 from bson import ObjectId
-from fastapi.responses import Response
+from fastapi.responses import Response,FileResponse
 import mimetypes
 from authentication import (
     UserRegister, UserLogin, Token,
     create_user, authenticate_user, create_access_token,
     get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
-from datetime import timedelta
-from workflows.rag_filing_analysis import run_rag_query
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,8 +47,50 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FinSight API", version="1.0.0", lifespan=lifespan)
 
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+os.makedirs("charts", exist_ok=True)
+os.makedirs("reports", exist_ok=True)
+os.makedirs("static", exist_ok=True)
+
+# Mount static directories for serving files
+app.mount("/charts", StaticFiles(directory="charts"), name="charts")
+app.mount("/reports", StaticFiles(directory="reports"), name="reports")
+app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+
+
+# Serve index.html at the root explicitly
+@app.get("/", response_class=FileResponse)
+async def serve_index():
+    return FileResponse("static/frontend.html")
+
+# Initialize LLM
+try:
+    llm = OllamaLLM(model="llama3.2", format="json")
+    print("✓ Ollama LLM initialized")
+except Exception as e:
+    print(f"✗ Error initializing Ollama: {e}")
+    llm = None
+
+# Pydantic models for API
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    session_id: str
+    response: str
+    intent: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
 async def store_file_dual(session_id: str, file_path: str, file_type: str, file_url: str):
-    """Store file in both filesystem and MongoDB"""
     try:
         if not os.path.exists(file_path):
             print(f"Warning: File not found at {file_path}")
@@ -95,144 +134,156 @@ async def store_file_dual(session_id: str, file_path: str, file_type: str, file_
         print(f"✗ Error storing file: {e}")
         return None
     
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Mount static directories for serving files
-app.mount("/charts", StaticFiles(directory="charts"), name="charts")
-app.mount("/reports", StaticFiles(directory="reports"), name="reports")
-app.mount("/static", StaticFiles(directory="static", html=True), name="static")
-
-# Serve index.html at the root explicitly
-@app.get("/", response_class=FileResponse)
-async def serve_index():
-    return FileResponse("static/frontend.html")
-
-# Initialize LLM
-try:
-    llm = OllamaLLM(model="llama3.2", format="json")
-    print("✓ Ollama LLM initialized")
-except Exception as e:
-    print(f"✗ Error initializing Ollama: {e}")
-    llm = None
-
-# Pydantic models for API
-class ChatRequest(BaseModel):
-    message: str
-    session_id: Optional[str] = None
-
-class ChatResponse(BaseModel):
-    session_id: str
-    response: str
-    intent: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-
 # Helper functions
 def check_for_chart_keywords(query: str) -> bool:
-    """Check if query contains chart-related keywords"""
     query = query.lower()
     return any(keyword in query for keyword in ["chart", "plot", "graph", "visualize", "visualise"])
 
-# Fixed classify_intent and process_query functions
-# Replace these in your main_backend.py
-
-import json
-import re
-from typing import Dict, Any
-
 def classify_intent(state: FinanceAgentState) -> dict:
-    """Classify user intent using LLM with improved logic"""
+    """
+    Classify user intent with improved logic for distinguishing between:
+    - get_sec_filing_section: Extract complete sections (Item 1A, risks section, etc.)
+    - rag_filing_lookup: Answer specific questions about filing content
+    """
+    if llm is None:
+        # Fallback to keyword-based classification
+        query = state["user_query"].lower()
+        if any(word in query for word in ["chart", "plot", "graph", "price", "stock"]):
+            return {"intent": "get_stock_data_and_chart"}
+        elif any(word in query for word in ["news", "article", "headline"]):
+            return {"intent": "get_financial_news"}
+        elif any(word in query for word in ["filing", "10-k", "10-q", "sec"]):
+            return {"intent": "get_sec_filing_section"}
+        elif any(word in query for word in ["report", "analysis", "comprehensive"]):
+            return {"intent": "get_report"}
+        else:
+            return {"intent": "greeting_help"}
+    
     user_query = state["user_query"]
     query_lower = user_query.lower()
-    
-    # ============================================================================
-    # RULE-BASED PRE-CLASSIFICATION (Fast path for obvious cases)
-    # ============================================================================
     
     # 1. Greetings - catch early
     greeting_keywords = ["hello", "hi", "hey", "help me", "what can you do", "how do you work"]
     if any(keyword in query_lower for keyword in greeting_keywords) and len(query_lower.split()) < 10:
-        return {
-            "intent": "greeting_help",
-            "messages": []
-        }
+        return {"intent": "greeting_help"}
     
     # 2. Chart requests - very explicit
     chart_keywords = ["chart", "plot", "graph", "visualize", "visualise", "show me a chart"]
     if any(keyword in query_lower for keyword in chart_keywords):
-        return {
-            "intent": "get_stock_data_and_chart",
-            "create_chart": True,
-            "messages": []
-        }
+        return {"intent": "get_stock_data_and_chart", "create_chart": True}
     
     # 3. News requests - explicit keywords
     news_keywords = ["news", "recent news", "latest news", "what's happening with", "headlines"]
     if any(keyword in query_lower for keyword in news_keywords):
-        return {
-            "intent": "get_financial_news",
-            "messages": []
-        }
+        return {"intent": "get_financial_news"}
     
     # 4. Specific metrics - P/E, market cap, etc.
     metric_keywords = ["p/e ratio", "pe ratio", "market cap", "current price", "stock price"]
     if any(keyword in query_lower for keyword in metric_keywords):
-        return {
-            "intent": "get_stock_data_and_chart",
-            "create_chart": False,
-            "messages": []
-        }
+        return {"intent": "get_stock_data_and_chart", "create_chart": False}
     
     # 5. Report generation - explicit
     report_keywords = ["generate report", "full report", "analyst report", "comprehensive analysis", "create a report"]
     if any(keyword in query_lower for keyword in report_keywords):
-        return {
-            "intent": "get_report",
-            "messages": []
-        }
+        return {"intent": "get_report"}
     
-    # 6. Section extraction - very specific patterns
+    # ============================================================================
+    # 6. SEC FILING SECTION EXTRACTION - CRITICAL PATTERNS
+    # ============================================================================
+    
+    # Known section keywords that map to actual 10-K/10-Q sections
+    section_keywords = {
+        "risk": "Item 1A",
+        "risks": "Item 1A", 
+        "risk factors": "Item 1A",
+        "business": "Item 1",
+        "properties": "Item 2",
+        "legal proceedings": "Item 3",
+        "management discussion": "Item 7",
+        "md&a": "Item 7",
+        "financial statements": "Item 8",
+        "controls and procedures": "Item 9A",
+        "directors": "Item 10",
+        "executive compensation": "Item 11",
+        "security ownership": "Item 12",
+        "exhibits": "Item 15"
+    }
+    
+    # Patterns for explicit section requests
     section_patterns = [
         r"item\s+\d+[a-z]?",  # "Item 1A", "Item 7"
         r"section\s+\d+",
         r"part\s+[iv]+",
     ]
-    section_keywords = ["extract section", "show me item", "get item"]
     
+    # Check if query explicitly mentions a known section
+    has_section_keyword = any(keyword in query_lower for keyword in section_keywords.keys())
     has_section_pattern = any(re.search(pattern, query_lower) for pattern in section_patterns)
-    has_section_keyword = any(keyword in query_lower for keyword in section_keywords)
     
-    if has_section_pattern or has_section_keyword:
-        return {
-            "intent": "get_sec_filing_section",
-            "messages": []
-        }
+    # Phrases that indicate they want the ENTIRE section, not analysis
+    section_request_phrases = [
+        "extract",
+        "show me",
+        "get the",
+        "pull",
+        "retrieve",
+        "find the",
+        "display",
+        "what are the risks",  # This is KEY - they want the risks section!
+        "what risks",
+        "list the risks",
+        "show risks"
+    ]
+    
+    has_section_request_phrase = any(phrase in query_lower for phrase in section_request_phrases)
+    
+    # DECISION: If they mention a known section AND use extraction language
+    if (has_section_keyword or has_section_pattern) and has_section_request_phrase:
+        return {"intent": "get_sec_filing_section"}
     
     # ============================================================================
-    # LLM-BASED CLASSIFICATION (For ambiguous cases)
+    # 7. LLM-BASED CLASSIFICATION (For ambiguous cases)
     # ============================================================================
     
-    few_shot_prompt = f"""You are an expert at routing a user's query about financial analysis to the correct tool.
+    history_text = ""
+    for msg in state["messages"][-6:]:
+        role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+        history_text += f"{role}: {msg.content}\n"
+    
+    few_shot_prompt = f"""Conversation so far:
+{history_text}
 
-Your only job is to return a JSON object with a single key, "step", which indicates the correct tool to use.
+Stored context:
+- last intent: {state.get("intent")}
+- last company: {state.get("company_name")}
+- last ticker: {state.get("ticker")}
+
+User's latest message:
+{user_query}
+
+You are an expert at routing a user's query about financial analysis to the correct tool.
+
+Your only job is to return a valid JSON object with a single key, "step", which indicates the correct tool to use.
 
 The available tools are:
-- get_sec_filing_section: Extract a COMPLETE SECTION by its official name (Item 1A, Item 7, etc.)
+- get_sec_filing_section: Extract a COMPLETE SECTION by its official name (Item 1A, Item 7, etc.) OR when user asks "What are the risks" (they want the full risks section)
 - get_financial_news: Get recent news articles about a company
 - get_report: Generate a comprehensive analyst report with multiple data sources
 - greeting_help: Respond to greetings or general help requests
 - get_stock_data_and_chart: Get stock metrics, prices, and charts
-- rag_filing_lookup: Answer SPECIFIC QUESTIONS by searching through filing content using semantic search
+- rag_filing_lookup: Answer SPECIFIC ANALYTICAL QUESTIONS by searching through filing content using semantic search
 
 CRITICAL DISTINCTION:
-- Use "get_sec_filing_section" when user wants an ENTIRE SECTION by name (Item 1A, Item 7, Section X)
-- Use "rag_filing_lookup" when user asks a QUESTION about filing content (What, How, Why, Explain, etc.)
+- Use "get_sec_filing_section" when user wants:
+  * An ENTIRE SECTION by name (Item 1A, Item 7, Section X)
+  * "What are the risks" or "Show me the risks" (they want the full risks section)
+  * "List the risks" or "Display risk factors"
+  * ANY request that asks for a known section's content
+
+- Use "rag_filing_lookup" when user asks:
+  * Analytical questions requiring interpretation (How, Why, Compare, Analyze)
+  * Questions that need synthesis across multiple sections
+  * Questions that require semantic search (not just section extraction)
 
 Examples:
 
@@ -240,20 +291,29 @@ Section Extraction (get_sec_filing_section):
 Query: "Show me Item 1A from Apple's 10-K"
 JSON: {{"step": "get_sec_filing_section"}}
 
+Query: "What are the risks in Microsoft's latest 10-K filing?"
+JSON: {{"step": "get_sec_filing_section"}}
+
 Query: "Extract the risk factors section from Microsoft's filing"
 JSON: {{"step": "get_sec_filing_section"}}
 
+Query: "Get the business description from Tesla's 10-K"
+JSON: {{"step": "get_sec_filing_section"}}
+
+Query: "Show me the MD&A section"
+JSON: {{"step": "get_sec_filing_section"}}
+
 RAG Lookup (rag_filing_lookup):
-Query: "What risks did Apple report in their 10-K?"
+Query: "How does Microsoft describe their cloud strategy compared to competitors?"
 JSON: {{"step": "rag_filing_lookup"}}
 
-Query: "How does Microsoft describe their cloud business in their filings?"
+Query: "Why is Tesla concerned about battery supply chains?"
 JSON: {{"step": "rag_filing_lookup"}}
 
-Query: "Explain Tesla's battery technology strategy from their SEC filings"
+Query: "Explain Apple's AI strategy based on their filings"
 JSON: {{"step": "rag_filing_lookup"}}
 
-Query: "What does Amazon say about AWS growth in their annual report?"
+Query: "Compare Amazon's revenue growth to their risk disclosures"
 JSON: {{"step": "rag_filing_lookup"}}
 
 News:
@@ -304,35 +364,41 @@ JSON:
         ]
         
         if intent not in valid_intents:
-            print(f"⚠️  Invalid intent from LLM: {intent}. Using fallback.")
+            print(f"⚠️ Invalid intent from LLM: {intent}. Using fallback.")
             # Intelligent fallback
             if any(word in query_lower for word in ["what", "how", "why", "explain", "describe"]):
-                intent = "rag_filing_lookup"
+                # Check if it's asking for a section vs analysis
+                if has_section_keyword:
+                    intent = "get_sec_filing_section"
+                else:
+                    intent = "rag_filing_lookup"
             else:
                 intent = "greeting_help"
         
         print(f"✓ Classified intent: {intent}")
         
     except json.JSONDecodeError as e:
-        print(f"⚠️  JSON parse error: {e}")
+        print(f"⚠️ JSON parse error: {e}")
         print(f"Raw response: {response_str[:200] if response_str else 'None'}")
-        # Fallback based on question words
-        if any(word in query_lower for word in ["what", "how", "why", "explain", "describe", "tell me"]):
+        # Fallback based on section keywords
+        if has_section_keyword or has_section_pattern:
+            intent = "get_sec_filing_section"
+        elif any(word in query_lower for word in ["what", "how", "why", "explain", "describe", "tell me"]):
             intent = "rag_filing_lookup"
         else:
-            intent = "greeting_help"
+            intent = state.get("intent") or "greeting_help"
+
     except Exception as e:
         print(f"✗ Intent classification error: {e}")
-        # Safe fallback
-        if any(word in query_lower for word in ["what", "how", "why"]):
+        # Safe fallback with section awareness
+        if has_section_keyword or has_section_pattern:
+            intent = "get_sec_filing_section"
+        elif any(word in query_lower for word in ["what", "how", "why"]):
             intent = "rag_filing_lookup"
         else:
-            intent = "greeting_help"
+            intent = state.get("intent") or "greeting_help"
     
-    updates = {
-        "intent": intent,
-        "messages": [],
-    }
+    updates = {"intent": intent}
     
     if intent == "get_stock_data_and_chart":
         is_chart_requested = check_for_chart_keywords(user_query)
@@ -340,11 +406,129 @@ JSON:
     
     return updates
 
+def merge_entities(state, updates):
+    """Safely merge new entities without overwriting previous ones with None"""
+    if updates is None:
+        return state
+
+    if updates.get("company_name"):
+        state["company_name"] = updates["company_name"]
+
+    if updates.get("ticker"):
+        state["ticker"] = updates["ticker"]
+
+    if updates.get("intent"):
+        state["intent"] = updates["intent"]
+    
+    # Handle chart flag
+    if "create_chart" in updates:
+        state["create_chart"] = updates["create_chart"]
+    
+    # Handle filing type and section
+    if updates.get("filing_type"):
+        state["filing_type"] = updates["filing_type"]
+    
+    if updates.get("section"):
+        state["section"] = updates["section"]
+    
+    if updates.get("time_period"):
+        state["time_period"] = updates["time_period"]
+
+    return state
+
+def greeting_help_node(state: FinanceAgentState) -> dict:
+    """Return greeting and help instructions"""
+    instructions = """Hello! 😉
+
+I am FinSight 💰📈 - your personal Financial Analyst ...
+
+Here are some things you can ask me:
+- Generate a stock performance chart for Amazon (AMZN)
+- What are the risks in Microsoft's latest 10-K filing?
+- Summarize recent news about Tesla (TSLA)
+- What is the current P/E ratio for NVIDIA (NVDA)?
+- Generate a full analyst report for Salesforce (CRM)
+- How does Microsoft describe their cybersecurity risks?
+"""
+    return {
+        "final_answer": instructions,
+        "messages": [AIMessage(content=instructions)]
+    }
+
+def create_user_friendly_message(intent: str, state: dict) -> str:
+    """Create user-friendly messages based on intent and data"""
+    company_name = state.get("company_name", "the company")
+    ticker = state.get("ticker", "")
+    
+    if intent == "get_stock_data_and_chart":
+        metrics = state.get("structured_data") or {}
+        current_price = metrics.get("current_price", "N/A")
+        pe_ratio = metrics.get("pe_ratio", "N/A")
+        market_cap = metrics.get("market_cap", "N/A")
+        
+        # Format market cap
+        if isinstance(market_cap, (int, float)) and market_cap > 0:
+            if market_cap >= 1e12:
+                market_cap_str = f"${market_cap/1e12:.2f}T"
+            elif market_cap >= 1e9:
+                market_cap_str = f"${market_cap/1e9:.2f}B"
+            else:
+                market_cap_str = f"${market_cap/1e6:.2f}M"
+        else:
+            market_cap_str = str(market_cap)
+        
+        if state.get("create_chart"):
+            message = f"📊 Here's the stock performance for **{company_name}** ({ticker}):\n\n"
+        else:
+            message = f"📈 Here are the key metrics for **{company_name}** ({ticker}):\n\n"
+        
+        message += f"💵 **Current Price:** ${current_price}\n"
+        message += f"📊 **Market Cap:** {market_cap_str}\n"
+        message += f"📉 **P/E Ratio:** {pe_ratio}\n"
+        
+        if state.get("data_range"):
+            message += f"\n📅 Data Range: {state.get('data_range')}"
+        
+        return message
+    
+    elif intent == "get_financial_news":
+        news_results = state.get("news_results", [])
+        if news_results:
+            message = f"📰 I found **{len(news_results)}** recent news articles about **{company_name}**. Here's what's happening:"
+        else:
+            message = f"📰 No recent news found for {company_name}."
+        return message
+    
+    elif intent == "get_sec_filing_section":
+        filing_type = state.get("filing_type", "10-K")
+        section = state.get("section", "")
+        tool_result = state.get("tool_result", "")
+        # Handle None or empty result
+        if not tool_result:
+            return f"📋 Sorry, I couldn't retrieve the {filing_type} filing for **{company_name}**. The filing might not be available or there was an error accessing it."
+        # Create a preview of the content (first 500 chars)
+        preview = tool_result[:500] + "..." if len(tool_result) > 500 else tool_result
+        
+        message = f"📋 Here's what I found in **{company_name}'s** latest **{filing_type}** filing:\n\n{preview}"
+        return message
+    
+    elif intent == "get_report":
+        message = f"📊 I've generated a comprehensive financial analysis report for **{company_name}**.\n\n"
+        message += "The report includes:\n"
+        message += "• Key business risks from SEC filings\n"
+        message += "• Recent market performance and metrics\n"
+        message += "• Latest news and market catalysts\n\n"
+        message += "You can download the full report below."
+        return message
+    
+    elif intent == "rag_filing_lookup":
+      return state.get("rag_answer", "I could not find any matching filing information.")
+
+    
+    return state.get("final_answer", "I've processed your request.")
+
 
 async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
-    """
-    Dedicated node to run RAG query against SEC filings and update state.
-    """
     try:
         ticker = state.get("ticker")
         query = state.get("user_query")
@@ -363,6 +547,9 @@ async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
         print(f"🔍 Running RAG query for {ticker}...")
         print(f"   Query: {query[:100]}...")
         
+        print(f"🔍 Running RAG query for {ticker}...")
+        print(f"   Query: {query[:100]}...")
+
         # Call RAG function
         rag_answer = run_rag_query(query, ticker)
         
@@ -423,17 +610,18 @@ async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
 
 
 async def process_query(state: FinanceAgentState) -> FinanceAgentState:
-    """Process a query through the agent workflow"""
     
     # STEP 1: Extract entities FIRST (critical - must happen before classification)
     print("🔍 Step 1: Extracting entities...")
-    state.update(extract_entities_node(state))
+    entities = await asyncio.to_thread(extract_entities_node, state)
+    state = merge_entities(state, entities)
     print(f"   Ticker: {state.get('ticker', 'N/A')}")
     print(f"   Company: {state.get('company_name', 'N/A')}")
     
     # STEP 2: Classify intent
     print("🎯 Step 2: Classifying intent...")
-    state.update(classify_intent(state))
+    intent_update = await asyncio.to_thread(classify_intent, state)
+    state.update(intent_update)
     
     intent = state.get("intent")
     print(f"   Intent: {intent}")
@@ -442,10 +630,12 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     print(f"🚀 Step 3: Executing {intent}...")
     
     if intent == "greeting_help":
-        state.update(greeting_help_node(state))
+       result = await asyncio.to_thread(greeting_help_node, state)
+       state.update(result)
         
     elif intent == "get_stock_data_and_chart":
-        state.update(get_stock_data_and_chart_node(state))
+        result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
+        state.update(result)
         try:
             friendly_message = create_user_friendly_message(intent, state)
             state["user_friendly_message"] = friendly_message
@@ -454,7 +644,8 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
             state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
         
     elif intent == "get_financial_news":
-        state.update(get_financial_news_node(state))
+        result = await asyncio.to_thread(get_financial_news_node, state)
+        state.update(result)
         try:
             friendly_message = create_user_friendly_message(intent, state)
             state["user_friendly_message"] = friendly_message
@@ -463,7 +654,8 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
             state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
         
     elif intent == "get_sec_filing_section":
-        state.update(get_sec_filing_section_node(state))
+        result = await asyncio.to_thread(get_sec_filing_section_node, state)
+        state.update(result)
         try:
             friendly_message = create_user_friendly_message(intent, state)
             state["user_friendly_message"] = friendly_message
@@ -473,10 +665,17 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
         
     elif intent == "get_report":
         # Execute report workflow
-        state.update(get_stock_data_and_chart_node(state))
-        state.update(get_financial_news_node(state))
-        state.update(get_sec_filing_section_node(state))
-        state.update(curate_report_node(state))
+        stock_result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
+        state.update(stock_result)
+        
+        news_result = await asyncio.to_thread(get_financial_news_node, state)
+        state.update(news_result)
+        
+        sec_result = await asyncio.to_thread(get_sec_filing_section_node, state)
+        state.update(sec_result)
+        
+        report_result = await asyncio.to_thread(curate_report_node, state)
+        state.update(report_result)
         try:
             friendly_message = create_user_friendly_message(intent, state)
             state["user_friendly_message"] = friendly_message
@@ -491,127 +690,6 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     
     print(f"✓ Step 3 complete")
     return state
-
-def greeting_help_node(state: FinanceAgentState) -> dict:
-    """Return greeting and help instructions"""
-    instructions = """Hello! 😉
-
-I am FinSight 💰📈 - your personal Financial Analyst ...
-
-Here are some things you can ask me:
-- Generate a stock performance chart for Amazon (AMZN)
-- What are the risks in Microsoft's latest 10-K filing?
-- Summarize recent news about Tesla (TSLA)
-- What is the current P/E ratio for NVIDIA (NVDA)?
-- Generate a full analyst report for Salesforce (CRM)
-"""
-    return {
-        "final_answer": instructions,
-        "messages": []
-    }
-
-def create_user_friendly_message(intent: str, state: dict) -> str:
-    """Create user-friendly messages based on intent and data"""
-    company_name = state.get("company_name", "the company")
-    ticker = state.get("ticker", "")
-    
-    if intent == "get_stock_data_and_chart":
-        metrics = state.get("structured_data") or {}
-        current_price = metrics.get("current_price", "N/A")
-        pe_ratio = metrics.get("pe_ratio", "N/A")
-        market_cap = metrics.get("market_cap", "N/A")
-        
-        # Format market cap
-        if isinstance(market_cap, (int, float)) and market_cap > 0:
-            if market_cap >= 1e12:
-                market_cap_str = f"${market_cap/1e12:.2f}T"
-            elif market_cap >= 1e9:
-                market_cap_str = f"${market_cap/1e9:.2f}B"
-            else:
-                market_cap_str = f"${market_cap/1e6:.2f}M"
-        else:
-            market_cap_str = str(market_cap)
-        
-        if state.get("create_chart"):
-            message = f"📊 Here's the stock performance for **{company_name}** ({ticker}):\n\n"
-        else:
-            message = f"📈 Here are the key metrics for **{company_name}** ({ticker}):\n\n"
-        
-        message += f"💵 **Current Price:** ${current_price}\n"
-        message += f"📊 **Market Cap:** {market_cap_str}\n"
-        message += f"📉 **P/E Ratio:** {pe_ratio}\n"
-        
-        if state.get("data_range"):
-            message += f"\n📅 Data Range: {state.get('data_range')}"
-        
-        return message
-    
-    elif intent == "get_financial_news":
-        news_results = state.get("news_results", [])
-        if news_results:
-            message = f"📰 I found **{len(news_results)}** recent news articles about **{company_name}**. Here's what's happening:"
-        else:
-            message = f"📰 No recent news found for {company_name}."
-        return message
-    
-    elif intent == "get_sec_filing_section":
-        filing_type = state.get("filing_type", "10-K")
-        section = state.get("section", "")
-        tool_result = state.get("tool_result", "")
-        
-        # Create a preview of the content (first 500 chars)
-        preview = tool_result[:500] + "..." if len(tool_result) > 500 else tool_result
-        
-        message = f"📋 Here's what I found in **{company_name}'s** latest **{filing_type}** filing:\n\n{preview}"
-        return message
-    
-    elif intent == "get_report":
-        message = f"📊 I've generated a comprehensive financial analysis report for **{company_name}**.\n\n"
-        message += "The report includes:\n"
-        message += "• Key business risks from SEC filings\n"
-        message += "• Recent market performance and metrics\n"
-        message += "• Latest news and market catalysts\n\n"
-        message += "You can download the full report below."
-        return message
-    
-    elif intent == "rag_filing_lookup":
-      return state.get("rag_answer", "I could not find any matching filing information.")
-
-    
-    return state.get("final_answer", "I've processed your request.")
-
-
-    """
-    Dedicated node to run RAG query against SEC filings and update state.
-    """
-    try:
-        # Check if ticker is available, essential for RAG
-        if not state.get("ticker"):
-            # Provide a fallback message if entity extraction failed
-            error_message = "I need a company ticker (e.g., AAPL) to perform RAG analysis on a filing. Please try again."
-            return {
-                "rag_answer": None,
-                "final_answer": error_message,
-                "user_friendly_message": error_message,
-                "messages": []
-            }
-            
-        rag_answer = run_rag_query(state["user_query"], state["ticker"])
-        return {
-            "rag_answer": rag_answer,
-            "final_answer": rag_answer,
-            "user_friendly_message": rag_answer,
-            "messages": []
-        }
-    except Exception as e:
-        error_message = f"RAG lookup failed for {state.get('ticker', 'the company')}: {str(e)}"
-        print(f"✗ {error_message}")
-        return {
-            "rag_answer": None,
-            "final_answer": error_message,
-            "user_friendly_message": error_message,
-            "messages": []
-        }
 
 async def get_or_create_session(session_id: str):
     """Get existing session or create new one"""
@@ -643,6 +721,7 @@ async def get_or_create_session(session_id: str):
         "chart_path": None,  
         "filing_info": None, 
         "data_range": None,  
+         "rag_answer": None,
     }
 
     new_session = {
@@ -754,10 +833,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             # Retrieve existing state dictionary
             state_dict = session_data["state"].copy()
-
+            
             # Update the state
             state_dict["user_query"] = user_message
-
+            state_dict["messages"].append(HumanMessage(content=user_message))
             # Convert to FinanceAgentState
             try:
                 state_obj = FinanceAgentState(state_dict)
@@ -811,6 +890,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 
                 # Use user-friendly message if available
                 display_message = updated_state.get("user_friendly_message") or updated_state.get("final_answer", "I couldn't process that request.")
+
+                # Ensure it's a string, not None
+                if not isinstance(display_message, str) or not display_message:
+                    display_message = "I couldn't process that request."
 
                 # Store conversation messages
                 await db.messages.insert_many([
@@ -890,12 +973,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 # Send final agent message to UI
                 await websocket.send_json(response_packet)
 
+                if display_message:
+                    session_data["state"]["messages"].append(
+                        AIMessage(content=display_message)
+                    )
+
             except Exception as e:
                 import traceback
-                traceback.print_exc()
+                error_details = traceback.format_exc()
+                print(f"WebSocket error for session {session_id}:")
+                print(error_details)
+                
+                # Send sanitized error to client
+                error_message = str(e) if not isinstance(e, (IOError, OSError)) else "An error occurred processing your request"
                 await websocket.send_json({
                     "type": "error",
-                    "content": f"Error processing request: {str(e)}"
+                    "content": f"Error processing request: {error_message}"
                 })
 
     except WebSocketDisconnect:
