@@ -4,10 +4,12 @@ from typing_extensions import TypedDict
 import torch
 import json
 from pathlib import Path
+import hashlib
+import requests
+from dotenv import load_dotenv
 
 # For robust HTML parsing
 from unstructured.partition.html import partition_html
-
 from langgraph.graph import StateGraph, END
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -22,6 +24,10 @@ from langchain.retrievers import EnsembleRetriever
 # LLM
 from langchain_ollama import OllamaLLM as Ollama
 
+# SEC API
+from sec_api import QueryApi
+
+load_dotenv()
 
 # -------------------------------
 # CONFIGURATION
@@ -30,7 +36,7 @@ RAG_INDEX_DIR = "rag_index"
 FILINGS_DIR = "filings"
 MAX_CONTEXT_CHARS = 8000  # Limit context size
 os.makedirs(RAG_INDEX_DIR, exist_ok=True)
-
+os.makedirs(FILINGS_DIR, exist_ok=True)
 
 # -------------------------------
 # EMBEDDING WRAPPER
@@ -191,6 +197,96 @@ def find_filing(ticker: str) -> Optional[Path]:
     
     return None
 
+def download_sec_filing(ticker: str, filing_type: str = "10-K") -> Optional[Path]:
+    """
+    Download the latest SEC filing for a ticker and save it to the filings directory.
+    
+    Args:
+        ticker: Stock ticker symbol (e.g., "AAPL")
+        filing_type: Type of filing to download (default: "10-K")
+    
+    Returns:
+        Path to the saved filing file, or None if download failed
+    """
+    ticker = ticker.upper()
+    api_key = os.getenv("SEC_API_KEY")
+    
+    if not api_key:
+        print(f"⚠️  SEC_API_KEY not found. Cannot download filing for {ticker}.")
+        return None
+    
+    try:
+        print(f"📥 Downloading latest {filing_type} filing for {ticker}...")
+        
+        # Initialize SEC API
+        query_api = QueryApi(api_key=api_key)
+        
+        # Query for latest filing
+        query = {
+            "query": {"query_string": {"query": f"ticker:{ticker} AND formType:\"{filing_type}\""}},
+            "from": "0",
+            "size": "1",
+            "sort": [{"filedAt": {"order": "desc"}}],
+        }
+        
+        resp = query_api.get_filings(query)
+        
+        if not resp.get("filings"):
+            print(f"❌ No {filing_type} filing found for {ticker}.")
+            return None
+        
+        filing = resp["filings"][0]
+        filing_url = filing.get("linkToFilingDetails")
+        filing_date = filing.get("filedAt", "")
+        filing_accession = filing.get("accessionNo", "")
+        
+        if not filing_url:
+            print(f"❌ No filing URL found for {ticker}.")
+            return None
+        
+        # Generate filename hash from accession number or URL
+        if filing_accession:
+            # Use accession number to create unique hash
+            file_hash = hashlib.md5(filing_accession.encode()).hexdigest()[:16]
+        else:
+            # Fallback to URL hash
+            file_hash = hashlib.md5(filing_url.encode()).hexdigest()[:16]
+        
+        # Create filename: TICKER_FILING-TYPE_hash.html
+        filename = f"{ticker}_{filing_type}_{file_hash}.html"
+        file_path = Path(FILINGS_DIR) / filename
+        
+        # Check if file already exists
+        if file_path.exists():
+            print(f"✓ Filing already exists: {filename}")
+            return file_path
+        
+        # Download HTML content
+        headers = {"User-Agent": "FinSight Agent (contact: pranaybhagwat04@gmail.com)"}
+        response = requests.get(filing_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        html_content = response.text
+        
+        # Save to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        file_size_mb = len(html_content) / (1024 * 1024)
+        print(f"✓ Successfully downloaded and saved: {filename} ({file_size_mb:.2f} MB)")
+        print(f"  Filing date: {filing_date}")
+        print(f"  URL: {filing_url}")
+        
+        return file_path
+        
+    except requests.RequestException as e:
+        print(f"❌ Network error downloading filing for {ticker}: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ Error downloading filing for {ticker}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 # -------------------------------
 # WORKFLOW NODES
@@ -208,31 +304,42 @@ def check_index_node(state: RAGState) -> Dict[str, Any]:
         print(f"🔨 No index found for {ticker} → will build new index")
         return {"skip_processing": False}
 
-
 # Node 2: Load Filing
 def load_filing_node(state: RAGState) -> Dict[str, Any]:
-    """Loads the filing HTML."""
+    """Loads the filing HTML. Automatically downloads if not found."""
     # Skip if we're using cached index
     if state.get("skip_processing", False):
         return {}
     
     ticker = state["ticker"].upper()
     
+    # First, try to find existing filing
     filing_path = find_filing(ticker)
+    
+    # If not found, try to download it automatically
     if not filing_path:
-        # Get available tickers for error message
-        filing_dir = Path(FILINGS_DIR)
-        available_files = list(filing_dir.glob("*.html"))
-        available_tickers = set()
-        for f in available_files:
-            ticker_part = f.stem.split('_')[0].upper()
-            available_tickers.add(ticker_part)
+        print(f"📥 Filing not found locally for {ticker}. Attempting to download...")
+        filing_path = download_sec_filing(ticker, filing_type="10-K")
         
-        raise ValueError(
-            f"Filing not found for ticker {ticker}. "
-            f"Available tickers: {', '.join(sorted(available_tickers)) if available_tickers else 'None'}. "
-            f"Files should be in '{filing_dir.absolute()}'"
-        )
+        # If download failed, try 10-Q as fallback
+        if not filing_path:
+            print(f"📥 10-K not available. Trying 10-Q for {ticker}...")
+            filing_path = download_sec_filing(ticker, filing_type="10-Q")
+        
+        # If still not found, raise error with available tickers
+        if not filing_path:
+            filing_dir = Path(FILINGS_DIR)
+            available_files = list(filing_dir.glob("*.html"))
+            available_tickers = set()
+            for f in available_files:
+                ticker_part = f.stem.split('_')[0].upper()
+                available_tickers.add(ticker_part)
+            
+            raise ValueError(
+                f"Could not find or download filing for ticker {ticker}. "
+                f"Available tickers: {', '.join(sorted(available_tickers)) if available_tickers else 'None'}. "
+                f"Please ensure SEC_API_KEY is set in environment variables."
+            )
     
     print(f"📄 Loading filing: {filing_path.name}")
     
@@ -243,7 +350,6 @@ def load_filing_node(state: RAGState) -> Dict[str, Any]:
     print(f"✓ Loaded {len(raw_text):,} characters from filing")
     
     return {"raw_text": raw_text}
-
 
 # Node 3: Chunking
 text_splitter = RecursiveCharacterTextSplitter(
@@ -553,3 +659,44 @@ def clear_all_indexes():
         shutil.rmtree(RAG_INDEX_DIR)
         os.makedirs(RAG_INDEX_DIR)
     print("✓ Cleared all indexes")
+
+
+def download_filing_for_ticker(ticker: str, filing_type: str = "10-K") -> Optional[Path]:
+    """
+    Utility function to manually download a SEC filing for a ticker.
+    Useful for batch downloads or pre-populating the filings directory.
+    
+    Args:
+        ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
+        filing_type: Type of filing to download ("10-K" or "10-Q")
+    
+    Returns:
+        Path to the downloaded file, or None if download failed
+    
+    Example:
+        >>> download_filing_for_ticker("TSLA", "10-K")
+        >>> download_filing_for_ticker("GOOGL", "10-Q")
+    """
+    return download_sec_filing(ticker, filing_type)
+
+
+def list_available_filings() -> List[str]:
+    """
+    List all tickers that have filings available in the filings directory.
+    
+    Returns:
+        List of ticker symbols (uppercase)
+    """
+    filing_dir = Path(FILINGS_DIR)
+    if not filing_dir.exists():
+        return []
+    
+    available_files = list(filing_dir.glob("*.html"))
+    available_tickers = set()
+    
+    for f in available_files:
+        # Extract ticker from filename (format: TICKER_FILING-TYPE_hash.html)
+        ticker_part = f.stem.split('_')[0].upper()
+        available_tickers.add(ticker_part)
+    
+    return sorted(list(available_tickers))
