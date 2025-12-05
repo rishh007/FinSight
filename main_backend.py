@@ -2,7 +2,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException,Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List,Tuple
 import json
 import uuid
 import os
@@ -89,6 +89,176 @@ class ChatResponse(BaseModel):
     response: str
     intent: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+
+
+# ============================================================================
+# CONVERSATIONAL INTELLIGENCE LAYER
+# ============================================================================
+
+def detect_follow_up(state: FinanceAgentState) -> bool:
+    """
+    Detect if this is a follow-up question that references previous context
+    """
+    query_lower = state["user_query"].lower()
+    
+    follow_up_indicators = [
+        # Continuation words
+        "also", "and", "now", "then", "next",
+        # Comparative words
+        "what about", "how about", "versus", "vs", "compared to", "compare",
+        # Additive words
+        "too", "as well", "additionally",
+        # Reference words
+        "same for", "do the same", "repeat for"
+    ]
+    
+    return any(indicator in query_lower for indicator in follow_up_indicators)
+
+
+def resolve_coreferences(query: str, state: FinanceAgentState) -> str:
+    """
+    Replace pronouns and references with actual entity names from context
+    
+    Examples:
+    - "What about its revenue?" -> "What about Microsoft's revenue?"
+    - "Show me their risks" -> "Show me Apple's risks"
+    - "Compare it to Tesla" -> "Compare Microsoft to Tesla"
+    """
+    resolved_query = query
+    last_company = state.get("company_name")
+    last_ticker = state.get("ticker")
+    
+    if not last_company:
+        return query  # Nothing to resolve
+    
+    # Pronoun mappings
+    possessive_pronouns = {
+        r'\bits\b': f"{last_company}'s",
+        r'\btheir\b': f"{last_company}'s",
+        r'\bits\'\b': f"{last_company}'s",
+    }
+    
+    subject_pronouns = {
+        r'\bit\b': last_company,
+        r'\bthey\b': last_company,
+        r'\bthem\b': last_company,
+    }
+    
+    references = {
+        r'\bthat company\b': last_company,
+        r'\bthis company\b': last_company,
+        r'\bthe company\b': last_company,
+        r'\bsame company\b': last_company,
+    }
+    
+    # Apply replacements (case-insensitive)
+    for pattern, replacement in {**possessive_pronouns, **subject_pronouns, **references}.items():
+        resolved_query = re.sub(pattern, replacement, resolved_query, flags=re.IGNORECASE)
+    
+    print(f"🔄 Resolved: '{query}' -> '{resolved_query}'")
+    return resolved_query
+
+
+def extract_entities_with_context(state: FinanceAgentState) -> dict:
+    """
+    Enhanced entity extraction that considers conversational context
+    
+    Priority order:
+    1. Explicitly mentioned entities in current query
+    2. Entities from previous turn (if follow-up detected)
+    3. Default to None
+    """
+    # First, run normal entity extraction
+    entities = extract_entities_node(state)
+    
+    # Check if this is a follow-up question
+    is_follow_up = detect_follow_up(state)
+    
+    # If no entities found AND this is a follow-up AND we have previous context
+    if is_follow_up:
+        if not entities.get("ticker") and state.get("ticker"):
+            print(f"💡 Follow-up detected - using previous ticker: {state.get('ticker')}")
+            entities["ticker"] = state.get("ticker")
+            entities["company_name"] = state.get("company_name")
+        
+        if not entities.get("filing_type") and state.get("filing_type"):
+            entities["filing_type"] = state.get("filing_type")
+    
+    # Handle implicit references (no company mentioned at all)
+    query_lower = state["user_query"].lower()
+    has_pronoun = any(word in query_lower for word in ["it", "its", "they", "their", "them"])
+    has_reference = any(phrase in query_lower for phrase in ["that company", "this company", "the company"])
+    
+    if (has_pronoun or has_reference) and not entities.get("ticker") and state.get("ticker"):
+        print(f"💡 Pronoun/reference detected - using previous ticker: {state.get('ticker')}")
+        entities["ticker"] = state.get("ticker")
+        entities["company_name"] = state.get("company_name")
+    
+    return entities
+
+
+def analyze_conversation_context(state: FinanceAgentState) -> dict:
+    """
+    Analyze conversation history to understand context and intent shifts
+    
+    Returns:
+    - is_continuation: Is this continuing the same topic?
+    - is_comparison: Is this comparing to previous entity?
+    - is_new_topic: Is this a completely new topic?
+    """
+    current_query = state["user_query"].lower()
+    messages = state.get("messages", [])
+    
+    context = {
+        "is_continuation": False,
+        "is_comparison": False,
+        "is_new_topic": True,
+        "previous_intent": state.get("intent"),
+        "previous_company": state.get("company_name"),
+        "previous_ticker": state.get("ticker")
+    }
+    
+    if len(messages) < 2:
+        return context  # First message
+    
+    # Check for continuation signals
+    continuation_words = ["also", "and", "now", "then", "next", "additionally", "furthermore"]
+    context["is_continuation"] = any(word in current_query for word in continuation_words)
+    
+    # Check for comparison signals
+    comparison_words = ["versus", "vs", "compared to", "compare", "difference between", "better than"]
+    context["is_comparison"] = any(word in current_query for word in comparison_words)
+    
+    # If continuation or comparison, not a new topic
+    if context["is_continuation"] or context["is_comparison"]:
+        context["is_new_topic"] = False
+    
+    return context
+
+
+def handle_comparative_query(state: FinanceAgentState) -> Optional[Tuple[str, str]]:
+    """
+    Extract two entities for comparative queries
+    
+    Example: "Compare Apple vs Microsoft"
+    Returns: ("AAPL", "MSFT")
+    """
+    query = state["user_query"]
+    
+    # Try to extract two companies
+    comparison_pattern = r'(\w+)\s+(?:vs|versus|compared to|against)\s+(\w+)'
+    match = re.search(comparison_pattern, query, re.IGNORECASE)
+    
+    if match:
+        company1 = match.group(1)
+        company2 = match.group(2)
+        
+        # You'd need to resolve these to tickers (simplified here)
+        print(f"📊 Comparative query detected: {company1} vs {company2}")
+        return (company1, company2)
+    
+    return None
+
 
 async def store_file_dual(session_id: str, file_path: str, file_type: str, file_url: str):
     try:
@@ -610,85 +780,89 @@ async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
 
 
 async def process_query(state: FinanceAgentState) -> FinanceAgentState:
+    print("\n" + "="*60)
+    print("🗣️  CONVERSATIONAL PROCESSING")
+    print("="*60)
     
-    # STEP 1: Extract entities FIRST (critical - must happen before classification)
-    print("🔍 Step 1: Extracting entities...")
-    entities = await asyncio.to_thread(extract_entities_node, state)
+    # STEP 0: Analyze conversation context
+    print("📊 Step 0: Analyzing conversation context...")
+    context = analyze_conversation_context(state)
+    print(f"   Is continuation: {context['is_continuation']}")
+    print(f"   Is comparison: {context['is_comparison']}")
+    print(f"   Previous: {context['previous_company']} ({context['previous_ticker']})")
+    
+    # STEP 0.5: Resolve coreferences (pronouns, references)
+    print("🔄 Step 0.5: Resolving coreferences...")
+    original_query = state["user_query"]
+    resolved_query = resolve_coreferences(original_query, state)
+    if resolved_query != original_query:
+        state["user_query"] = resolved_query
+        state["original_query"] = original_query  # Keep original for logging
+    
+    # STEP 1: Extract entities with conversational context
+    print("🔍 Step 1: Extracting entities (context-aware)...")
+    entities = extract_entities_with_context(state)
     state = merge_entities(state, entities)
     print(f"   Ticker: {state.get('ticker', 'N/A')}")
     print(f"   Company: {state.get('company_name', 'N/A')}")
     
-    # STEP 2: Classify intent
-    print("🎯 Step 2: Classifying intent...")
+    # STEP 2: Handle comparative queries specially
+    if context["is_comparison"]:
+        print("⚖️  Step 2: Handling comparative query...")
+        comparison = handle_comparative_query(state)
+        if comparison:
+            state["comparison_entities"] = comparison
+            state["intent"] = "compare_entities"  # New intent type
+    
+    # STEP 3: Classify intent (with conversation awareness)
+    print("🎯 Step 3: Classifying intent (context-aware)...")
     intent_update = await asyncio.to_thread(classify_intent, state)
     state.update(intent_update)
     
     intent = state.get("intent")
     print(f"   Intent: {intent}")
     
-    # STEP 3: Route based on intent
-    print(f"🚀 Step 3: Executing {intent}...")
+    # STEP 4: Route based on intent (same as before)
+    print(f"🚀 Step 4: Executing {intent}...")
     
     if intent == "greeting_help":
-       result = await asyncio.to_thread(greeting_help_node, state)
-       state.update(result)
+        result = await asyncio.to_thread(greeting_help_node, state)
+        state.update(result)
         
     elif intent == "get_stock_data_and_chart":
         result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
         state.update(result)
-        try:
-            friendly_message = create_user_friendly_message(intent, state)
-            state["user_friendly_message"] = friendly_message
-        except Exception as e:
-            print(f"✗ Error creating friendly message: {e}")
-            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
+        friendly_message = create_user_friendly_message(intent, state)
+        state["user_friendly_message"] = friendly_message
         
     elif intent == "get_financial_news":
         result = await asyncio.to_thread(get_financial_news_node, state)
         state.update(result)
-        try:
-            friendly_message = create_user_friendly_message(intent, state)
-            state["user_friendly_message"] = friendly_message
-        except Exception as e:
-            print(f"✗ Error creating friendly message: {e}")
-            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
+        friendly_message = create_user_friendly_message(intent, state)
+        state["user_friendly_message"] = friendly_message
         
     elif intent == "get_sec_filing_section":
         result = await asyncio.to_thread(get_sec_filing_section_node, state)
         state.update(result)
-        try:
-            friendly_message = create_user_friendly_message(intent, state)
-            state["user_friendly_message"] = friendly_message
-        except Exception as e:
-            print(f"✗ Error creating friendly message: {e}")
-            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
+        friendly_message = create_user_friendly_message(intent, state)
+        state["user_friendly_message"] = friendly_message
         
     elif intent == "get_report":
-        # Execute report workflow
         stock_result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
         state.update(stock_result)
-        
         news_result = await asyncio.to_thread(get_financial_news_node, state)
         state.update(news_result)
-        
         sec_result = await asyncio.to_thread(get_sec_filing_section_node, state)
         state.update(sec_result)
-        
         report_result = await asyncio.to_thread(curate_report_node, state)
         state.update(report_result)
-        try:
-            friendly_message = create_user_friendly_message(intent, state)
-            state["user_friendly_message"] = friendly_message
-        except Exception as e:
-            print(f"✗ Error creating friendly message: {e}")
-            state["user_friendly_message"] = state.get("final_answer", "I encountered an error processing your request.")
-
+        friendly_message = create_user_friendly_message(intent, state)
+        state["user_friendly_message"] = friendly_message
+        
     elif intent == "rag_filing_lookup":
-        # RAG-based filing analysis
         state.update(await rag_filing_lookup_node(state))
-        # user_friendly_message is already set by rag_filing_lookup_node
     
-    print(f"✓ Step 3 complete")
+    print(f"✓ Processing complete\n")
     return state
 
 async def get_or_create_session(session_id: str):
