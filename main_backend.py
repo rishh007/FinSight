@@ -303,11 +303,38 @@ async def store_file_dual(session_id: str, file_path: str, file_type: str, file_
     except Exception as e:
         print(f"✗ Error storing file: {e}")
         return None
+
+# Add this new function near greeting_help_node or conversational_llm_node
+
+def non_financial_query_node(state: FinanceAgentState) -> dict:
+    """Return a canned response for queries that are clearly non-financial or failed classification."""
     
+    response = "🤖 **Sorry!** My focus is financial analysis. Please ask me about a specific company's stock, news, or SEC filings (e.g., 'Show me Apple's stock chart' or 'What are the risks in Microsoft's 10-K?')."
+    
+    return {
+        "final_answer": response,
+        "user_friendly_message": response,
+        "messages": [AIMessage(content=response)]
+    }
+
 # Helper functions
 def check_for_chart_keywords(query: str) -> bool:
     query = query.lower()
     return any(keyword in query for keyword in ["chart", "plot", "graph", "visualize", "visualise"])
+
+NON_FINANCIAL_KEYWORDS = [
+    "date", "time", "weather", "capital of", "who is", 
+    "meaning of", "how to cook", "recipe", "movie", "song", 
+    "game", "joke", "poem", "story"
+]
+
+def is_non_financial_query(q):
+    # No tickers AND contains obvious non-financial terms
+    if not re.search(r"\b[A-Z]{2,6}\b", q):
+        if any(word in q for word in NON_FINANCIAL_KEYWORDS):
+            return True
+    return False
+
 
 def classify_intent(state: FinanceAgentState) -> dict:
     """
@@ -331,11 +358,36 @@ def classify_intent(state: FinanceAgentState) -> dict:
     
     user_query = state["user_query"]
     query_lower = user_query.lower()
+    messages = state.get("messages", [])
+
+      # ----------------------------------------------------------------------
+    # 0. NON-FINANCIAL QUERY DETECTOR (MUST BE FIRST)
+    # ----------------------------------------------------------------------
+    if is_non_financial_query(query_lower):
+        print("⚠ Non-financial query detected — routing to non_financial_query")
+        return {"intent": "non_financial_query"}
     
     # 1. Greetings - catch early
-    greeting_keywords = ["hello", "hi", "hey", "help me", "what can you do", "how do you work"]
-    if any(keyword in query_lower for keyword in greeting_keywords) and len(query_lower.split()) < 10:
+    greeting_keywords = ["hello", "hi", "hey"]
+    is_first_message = len(messages) <= 1  # Only user's first message
+    
+    if is_first_message and any(keyword == query_lower.strip() for keyword in greeting_keywords):
         return {"intent": "greeting_help"}
+    
+    # 2. Follow-up conversational queries (after initial greeting)
+    conversational_keywords = [
+        "what can you do", "what can u do", "help", "help me", 
+        "how do you work", "what are you", "who are you",
+        "thanks", "thank you", "okay", "ok", "cool", "great",
+        "tell me more", "explain", "how does this work"
+    ]
+    
+    # Check if it's a conversational query (not a financial task)
+    is_conversational = any(phrase in query_lower for phrase in conversational_keywords)
+    has_no_ticker = not any(char.isupper() for char in user_query)  # No ticker symbols
+    
+    if is_conversational and has_no_ticker and len(query_lower.split()) < 15:
+        return {"intent": "conversational_llm"}  
     
     # 2. Chart requests - very explicit
     chart_keywords = ["chart", "plot", "graph", "visualize", "visualise", "show me a chart"]
@@ -436,6 +488,8 @@ You are an expert at routing a user's query about financial analysis to the corr
 Your only job is to return a valid JSON object with a single key, "step", which indicates the correct tool to use.
 
 The available tools are:
+- greeting_help: ONLY for initial "Hi"/"Hello" (first message)
+- conversational_llm: For follow-up questions, thanks, help requests, small talk
 - get_sec_filing_section: Extract a COMPLETE SECTION by its official name (Item 1A, Item 7, etc.) OR when user asks "What are the risks" (they want the full risks section)
 - get_financial_news: Get recent news articles about a company
 - get_report: Generate a comprehensive analyst report with multiple data sources
@@ -530,20 +584,20 @@ JSON:
             "get_report",
             "greeting_help",
             "get_stock_data_and_chart",
-            "rag_filing_lookup"
+            "rag_filing_lookup",
+            "conversational_llm" 
         ]
         
         if intent not in valid_intents:
             print(f"⚠️ Invalid intent from LLM: {intent}. Using fallback.")
             # Intelligent fallback
-            if any(word in query_lower for word in ["what", "how", "why", "explain", "describe"]):
-                # Check if it's asking for a section vs analysis
-                if has_section_keyword:
-                    intent = "get_sec_filing_section"
-                else:
-                    intent = "rag_filing_lookup"
+            if has_section_keyword:
+                intent = "get_sec_filing_section"
+            
+            # 2. Final Fallback: Non-Financial Query
             else:
-                intent = "greeting_help"
+                # If the query failed LLM validation AND didn't match specific financial keywords, it's irrelevant.
+                intent = "non_financial_query" # <-- CATCH-ALL NON-FINANCIAL INTENT
         
         print(f"✓ Classified intent: {intent}")
         
@@ -551,23 +605,18 @@ JSON:
         print(f"⚠️ JSON parse error: {e}")
         print(f"Raw response: {response_str[:200] if response_str else 'None'}")
         # Fallback based on section keywords
-        if has_section_keyword or has_section_pattern:
+        if has_section_keyword:
             intent = "get_sec_filing_section"
-        elif any(word in query_lower for word in ["what", "how", "why", "explain", "describe", "tell me"]):
-            intent = "rag_filing_lookup"
         else:
-            intent = state.get("intent") or "greeting_help"
+           intent = "non_financial_query" # <-- NEW FALLBACK INTENT
 
     except Exception as e:
-        print(f"✗ Intent classification error: {e}")
-        # Safe fallback with section awareness
-        if has_section_keyword or has_section_pattern:
+        print(f"❌ Generic error during classification: {e}")
+        # Safe fallback
+        if has_section_keyword:
             intent = "get_sec_filing_section"
-        elif any(word in query_lower for word in ["what", "how", "why"]):
-            intent = "rag_filing_lookup"
         else:
-            intent = state.get("intent") or "greeting_help"
-    
+           intent = "non_financial_query" # <-- NEW FALLBACK INTENT 
     updates = {"intent": intent}
     
     if intent == "get_stock_data_and_chart":
@@ -607,7 +656,8 @@ def merge_entities(state, updates):
     return state
 
 def greeting_help_node(state: FinanceAgentState) -> dict:
-    """Return greeting and help instructions"""
+    """Return initial greeting with full capabilities - only for first interaction"""
+    
     instructions = """Hello! 😉
 
 I am FinSight 💰📈 - your personal Financial Analyst ...
@@ -618,13 +668,84 @@ Here are some things you can ask me:
 - Summarize recent news about Tesla (TSLA)
 - What is the current P/E ratio for NVIDIA (NVDA)?
 - Generate a full analyst report for Salesforce (CRM)
-- How does Microsoft describe their cybersecurity risks?
-"""
+- How does Microsoft describe their cybersecurity risks?"""
+    
     return {
         "final_answer": instructions,
+        "user_friendly_message": instructions,
         "messages": [AIMessage(content=instructions)]
     }
 
+def conversational_llm_node(state: FinanceAgentState) -> dict:
+    """Fallback conversational responses using LLM for natural dialogue"""
+    
+    # Build conversation history
+    history = ""
+    for msg in state["messages"][-6:]:  # Last 6 messages for context
+        role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+        history += f"{role}: {msg.content}\n"
+    
+    # System prompt with capabilities
+    system_prompt = f"""You are FinSight 💰📈, a friendly financial analysis AI assistant.
+
+YOUR CAPABILITIES:
+✅ Generate stock performance charts (need ticker symbol like AAPL, TSLA)
+✅ Get current stock data: price, P/E ratio, market cap
+✅ Fetch recent financial news about companies
+✅ Extract SEC filing sections (10-K, 10-Q risk factors, business description, etc.)
+✅ Answer analytical questions about SEC filings using semantic search
+✅ Generate comprehensive analyst reports combining all data
+
+CONVERSATION RULES:
+- Be warm, conversational, and helpful
+- Keep responses brief (2-4 sentences max)
+- If user asks about a company, remind them to include ticker symbol
+- Never make up stock prices, financial data, or news
+- Guide users toward your capabilities naturally
+- If they thank you or make small talk, respond naturally then suggest next steps
+- For vague questions, ask for specific company/ticker
+
+Previous conversation:
+{history}
+
+User's latest message: {state["user_query"]}
+
+Respond naturally and guide them to use your features:"""
+    
+    try:
+        if llm:
+            # Use LLM without JSON format for natural conversation
+            llm_conversational = OllamaLLM(model="llama3.2")  # No format constraint
+            response = llm_conversational.invoke(system_prompt)
+            
+            # Clean up response if needed
+            response = response.strip()
+            
+            print(f"💬 Conversational LLM response: {response[:100]}...")
+            
+            return {
+                "final_answer": response,
+                "user_friendly_message": response,
+                "messages": [AIMessage(content=response)]
+            }
+        else:
+            # Fallback if LLM not available
+            fallback = "I'm here to help with financial analysis! Ask me about any publicly traded company (include the ticker symbol like AAPL or TSLA)."
+            return {
+                "final_answer": fallback,
+                "user_friendly_message": fallback,
+                "messages": [AIMessage(content=fallback)]
+            }
+            
+    except Exception as e:
+        print(f"⚠️ Conversational LLM error: {e}")
+        fallback = "I'm your financial analyst! Try asking me about a specific company's stock, news, or SEC filings."
+        return {
+            "final_answer": fallback,
+            "user_friendly_message": fallback,
+            "messages": [AIMessage(content=fallback)]
+        }
+    
 def create_user_friendly_message(intent: str, state: dict) -> str:
     """Create user-friendly messages based on intent and data"""
     company_name = state.get("company_name", "the company")
@@ -828,6 +949,17 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     if intent == "greeting_help":
         result = await asyncio.to_thread(greeting_help_node, state)
         state.update(result)
+        state["user_friendly_message"] = state.get("final_answer")
+
+    elif intent == "conversational_llm":  # NEW HANDLER
+        result = await asyncio.to_thread(conversational_llm_node, state)
+        state.update(result)
+        state["user_friendly_message"] = state.get("final_answer")
+
+    elif intent == "non_financial_query": # <-- NEW ROUTING
+        result = await asyncio.to_thread(non_financial_query_node, state)
+        state.update(result)
+        state["user_friendly_message"] = state.get("final_answer")
         
     elif intent == "get_stock_data_and_chart":
         result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
