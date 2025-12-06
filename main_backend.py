@@ -91,14 +91,7 @@ class ChatResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-# ============================================================================
-# CONVERSATIONAL INTELLIGENCE LAYER
-# ============================================================================
-
 def detect_follow_up(state: FinanceAgentState) -> bool:
-    """
-    Detect if this is a follow-up question that references previous context
-    """
     query_lower = state["user_query"].lower()
     
     follow_up_indicators = [
@@ -116,14 +109,6 @@ def detect_follow_up(state: FinanceAgentState) -> bool:
 
 
 def resolve_coreferences(query: str, state: FinanceAgentState) -> str:
-    """
-    Replace pronouns and references with actual entity names from context
-    
-    Examples:
-    - "What about its revenue?" -> "What about Microsoft's revenue?"
-    - "Show me their risks" -> "Show me Apple's risks"
-    - "Compare it to Tesla" -> "Compare Microsoft to Tesla"
-    """
     resolved_query = query
     last_company = state.get("company_name")
     last_ticker = state.get("ticker")
@@ -160,14 +145,6 @@ def resolve_coreferences(query: str, state: FinanceAgentState) -> str:
 
 
 def extract_entities_with_context(state: FinanceAgentState) -> dict:
-    """
-    Enhanced entity extraction that considers conversational context
-    
-    Priority order:
-    1. Explicitly mentioned entities in current query
-    2. Entities from previous turn (if follow-up detected)
-    3. Default to None
-    """
     # First, run normal entity extraction
     entities = extract_entities_node(state)
     
@@ -198,14 +175,6 @@ def extract_entities_with_context(state: FinanceAgentState) -> dict:
 
 
 def analyze_conversation_context(state: FinanceAgentState) -> dict:
-    """
-    Analyze conversation history to understand context and intent shifts
-    
-    Returns:
-    - is_continuation: Is this continuing the same topic?
-    - is_comparison: Is this comparing to previous entity?
-    - is_new_topic: Is this a completely new topic?
-    """
     current_query = state["user_query"].lower()
     messages = state.get("messages", [])
     
@@ -237,12 +206,6 @@ def analyze_conversation_context(state: FinanceAgentState) -> dict:
 
 
 def handle_comparative_query(state: FinanceAgentState) -> Optional[Tuple[str, str]]:
-    """
-    Extract two entities for comparative queries
-    
-    Example: "Compare Apple vs Microsoft"
-    Returns: ("AAPL", "MSFT")
-    """
     query = state["user_query"]
     
     # Try to extract two companies
@@ -253,7 +216,6 @@ def handle_comparative_query(state: FinanceAgentState) -> Optional[Tuple[str, st
         company1 = match.group(1)
         company2 = match.group(2)
         
-        # You'd need to resolve these to tickers (simplified here)
         print(f"📊 Comparative query detected: {company1} vs {company2}")
         return (company1, company2)
     
@@ -303,8 +265,6 @@ async def store_file_dual(session_id: str, file_path: str, file_type: str, file_
     except Exception as e:
         print(f"✗ Error storing file: {e}")
         return None
-
-# Add this new function near greeting_help_node or conversational_llm_node
 
 def non_financial_query_node(state: FinanceAgentState) -> dict:
     """Return a canned response for queries that are clearly non-financial or failed classification."""
@@ -360,9 +320,6 @@ def classify_intent(state: FinanceAgentState) -> dict:
     query_lower = user_query.lower()
     messages = state.get("messages", [])
 
-      # ----------------------------------------------------------------------
-    # 0. NON-FINANCIAL QUERY DETECTOR (MUST BE FIRST)
-    # ----------------------------------------------------------------------
     if is_non_financial_query(query_lower):
         print("⚠ Non-financial query detected — routing to non_financial_query")
         return {"intent": "non_financial_query"}
@@ -409,9 +366,6 @@ def classify_intent(state: FinanceAgentState) -> dict:
     if any(keyword in query_lower for keyword in report_keywords):
         return {"intent": "get_report"}
     
-    # ============================================================================
-    # 6. SEC FILING SECTION EXTRACTION - CRITICAL PATTERNS
-    # ============================================================================
     
     # Known section keywords that map to actual 10-K/10-Q sections
     section_keywords = {
@@ -459,13 +413,8 @@ def classify_intent(state: FinanceAgentState) -> dict:
     
     has_section_request_phrase = any(phrase in query_lower for phrase in section_request_phrases)
     
-    # DECISION: If they mention a known section AND use extraction language
     if (has_section_keyword or has_section_pattern) and has_section_request_phrase:
         return {"intent": "get_sec_filing_section"}
-    
-    # ============================================================================
-    # 7. LLM-BASED CLASSIFICATION (For ambiguous cases)
-    # ============================================================================
     
     history_text = ""
     for msg in state["messages"][-6:]:
@@ -597,7 +546,7 @@ JSON:
             # 2. Final Fallback: Non-Financial Query
             else:
                 # If the query failed LLM validation AND didn't match specific financial keywords, it's irrelevant.
-                intent = "non_financial_query" # <-- CATCH-ALL NON-FINANCIAL INTENT
+                intent = "non_financial_query" 
         
         print(f"✓ Classified intent: {intent}")
         
@@ -615,8 +564,8 @@ JSON:
         # Safe fallback
         if has_section_keyword:
             intent = "get_sec_filing_section"
-        else:
-           intent = "non_financial_query" # <-- NEW FALLBACK INTENT 
+        else:#
+           intent = "non_financial_query" 
     updates = {"intent": intent}
     
     if intent == "get_stock_data_and_chart":
@@ -656,7 +605,6 @@ def merge_entities(state, updates):
     return state
 
 def greeting_help_node(state: FinanceAgentState) -> dict:
-    """Return initial greeting with full capabilities - only for first interaction"""
     
     instructions = """Hello! 😉
 
@@ -715,7 +663,7 @@ Respond naturally and guide them to use your features:"""
     try:
         if llm:
             # Use LLM without JSON format for natural conversation
-            llm_conversational = OllamaLLM(model="llama3.2")  # No format constraint
+            llm_conversational = OllamaLLM(model="llama3.2")  
             response = llm_conversational.invoke(system_prompt)
             
             # Clean up response if needed
@@ -747,7 +695,6 @@ Respond naturally and guide them to use your features:"""
         }
     
 def create_user_friendly_message(intent: str, state: dict) -> str:
-    """Create user-friendly messages based on intent and data"""
     company_name = state.get("company_name", "the company")
     ticker = state.get("ticker", "")
     
@@ -797,7 +744,6 @@ def create_user_friendly_message(intent: str, state: dict) -> str:
         # Handle None or empty result
         if not tool_result:
             return f"📋 Sorry, I couldn't retrieve the {filing_type} filing for **{company_name}**. The filing might not be available or there was an error accessing it."
-        # Create a preview of the content (first 500 chars)
         preview = tool_result[:500] + "..." if len(tool_result) > 500 else tool_result
         
         message = f"📋 Here's what I found in **{company_name}'s** latest **{filing_type}** filing:\n\n{preview}"
@@ -905,37 +851,32 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     print("🗣️  CONVERSATIONAL PROCESSING")
     print("="*60)
     
-    # STEP 0: Analyze conversation context
     print("📊 Step 0: Analyzing conversation context...")
     context = analyze_conversation_context(state)
     print(f"   Is continuation: {context['is_continuation']}")
     print(f"   Is comparison: {context['is_comparison']}")
     print(f"   Previous: {context['previous_company']} ({context['previous_ticker']})")
     
-    # STEP 0.5: Resolve coreferences (pronouns, references)
     print("🔄 Step 0.5: Resolving coreferences...")
     original_query = state["user_query"]
     resolved_query = resolve_coreferences(original_query, state)
     if resolved_query != original_query:
         state["user_query"] = resolved_query
-        state["original_query"] = original_query  # Keep original for logging
+        state["original_query"] = original_query 
     
-    # STEP 1: Extract entities with conversational context
     print("🔍 Step 1: Extracting entities (context-aware)...")
     entities = extract_entities_with_context(state)
     state = merge_entities(state, entities)
     print(f"   Ticker: {state.get('ticker', 'N/A')}")
     print(f"   Company: {state.get('company_name', 'N/A')}")
     
-    # STEP 2: Handle comparative queries specially
     if context["is_comparison"]:
         print("⚖️  Step 2: Handling comparative query...")
         comparison = handle_comparative_query(state)
         if comparison:
             state["comparison_entities"] = comparison
-            state["intent"] = "compare_entities"  # New intent type
+            state["intent"] = "compare_entities"  
     
-    # STEP 3: Classify intent (with conversation awareness)
     print("🎯 Step 3: Classifying intent (context-aware)...")
     intent_update = await asyncio.to_thread(classify_intent, state)
     state.update(intent_update)
@@ -943,7 +884,6 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     intent = state.get("intent")
     print(f"   Intent: {intent}")
     
-    # STEP 4: Route based on intent (same as before)
     print(f"🚀 Step 4: Executing {intent}...")
     
     if intent == "greeting_help":
@@ -951,12 +891,12 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
         state.update(result)
         state["user_friendly_message"] = state.get("final_answer")
 
-    elif intent == "conversational_llm":  # NEW HANDLER
+    elif intent == "conversational_llm": 
         result = await asyncio.to_thread(conversational_llm_node, state)
         state.update(result)
         state["user_friendly_message"] = state.get("final_answer")
 
-    elif intent == "non_financial_query": # <-- NEW ROUTING
+    elif intent == "non_financial_query": 
         result = await asyncio.to_thread(non_financial_query_node, state)
         state.update(result)
         state["user_friendly_message"] = state.get("final_answer")
@@ -982,15 +922,29 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     elif intent == "get_report":
         stock_result = await asyncio.to_thread(get_stock_data_and_chart_node, state)
         state.update(stock_result)
+        
         news_result = await asyncio.to_thread(get_financial_news_node, state)
         state.update(news_result)
+        
+        state["filing_type"] = "10-K"
+        state["section"] = "1A"  # Risk Factors section
+        print(f"📋 Report: Requesting filing_type={state['filing_type']}, section={state['section']}")
+        
         sec_result = await asyncio.to_thread(get_sec_filing_section_node, state)
         state.update(sec_result)
+        
+        # Verify that we got the risk data
+        if sec_result.get("tool_result"):
+            print(f"✅ Report: Risk data retrieved ({len(str(sec_result.get('tool_result')))} chars)")
+        else:
+            print(f"⚠️ Report: No risk data retrieved")
+        
         report_result = await asyncio.to_thread(curate_report_node, state)
         state.update(report_result)
+        
         friendly_message = create_user_friendly_message(intent, state)
         state["user_friendly_message"] = friendly_message
-        
+            
     elif intent == "rag_filing_lookup":
         state.update(await rag_filing_lookup_node(state))
     
@@ -998,7 +952,6 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
     return state
 
 async def get_or_create_session(session_id: str):
-    """Get existing session or create new one"""
     session = await db.sessions.find_one({"session_id": session_id})
 
     # If found → return it
@@ -1534,7 +1487,6 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
 
 @app.post("/auth/logout")
 async def logout():
-    """Logout endpoint (token invalidation handled on client side)"""
     return {"message": "Logged out successfully"}
 
 if __name__ == "__main__":

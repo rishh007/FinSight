@@ -24,7 +24,7 @@ security = HTTPBearer()
 MYSQL_CONFIG = {
     "host": "localhost",
     "user": "root",
-    "password": "123456",  # Change this
+    "password": "123456",
     "database": "FinSight"
 }
 

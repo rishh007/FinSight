@@ -9,7 +9,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 llm = OllamaLLM(model="llama3.2", format="json")
 
 def map_section_code(section):
-    """Maps shorthand section codes to their full SEC API identifiers"""
     section_mapping = {
         "1A": ["part2item1a", "part1item1"],  # Try Risk Factors section first, then Business section
         "7": "part2item7",      # Management's Discussion and Analysis
@@ -22,9 +21,6 @@ def map_section_code(section):
     return result[0] if isinstance(result, list) else result
 
 def extract_entities_node(state: FinanceAgentState) -> dict:
-    """Extracts all necessary parameters (ticker, company name, filing type, and section) 
-    from the user's query and updates the state."""
-    
     print("---NODE: Extracting Entities---")
     user_query = state.get("user_query", "")
     

@@ -15,13 +15,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 console = Console()
 
 def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
-    """
-    Fetches stock data, updates the state with metrics, and conditionally
-    generates a price chart based on the 'create_chart' flag in the state.
-    """
     console.print(Panel("Getting Stock Data & Creating Chart", style="bold green"))
 
-    # --- helper to safely read from state (dict-like or object with get) ---
     def safe_get(obj, key, default=None):
         try:
             if isinstance(obj, dict):
@@ -33,7 +28,6 @@ def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
         except Exception:
             return default
 
-    # ---- canonical initialization for company_name and ticker ----
     company_name = safe_get(state, "company_name", None)
     ticker = safe_get(state, "ticker", None)
     request_chart = safe_get(state, "create_chart", False)

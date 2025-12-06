@@ -14,10 +14,6 @@ console = Console()
 from dotenv import load_dotenv
 load_dotenv()
 def get_financial_news_node(state: FinanceAgentState) -> dict:
-    """
-    Fetches recent financial news articles for a company name found in the state.
-    It updates the state with the list of news articles and a confirmation message.
-    """
     
     console.print(Panel("📰 NODE: Getting Financial News", style="bold cyan"))
     

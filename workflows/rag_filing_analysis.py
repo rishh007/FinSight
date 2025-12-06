@@ -29,21 +29,14 @@ from sec_api import QueryApi
 
 load_dotenv()
 
-# -------------------------------
-# CONFIGURATION
-# -------------------------------
 RAG_INDEX_DIR = "rag_index"
 FILINGS_DIR = "filings"
-MAX_CONTEXT_CHARS = 8000  # Limit context size
+MAX_CONTEXT_CHARS = 8000  
 os.makedirs(RAG_INDEX_DIR, exist_ok=True)
 os.makedirs(FILINGS_DIR, exist_ok=True)
 
-# -------------------------------
-# EMBEDDING WRAPPER
-# -------------------------------
 
 class SentenceTransformerEmbeddings(Embeddings):
-    """Custom wrapper for SentenceTransformer with dynamic device selection."""
     def __init__(self, model_name="BAAI/bge-base-en-v1.5"):
         if torch.cuda.is_available():
             device = "cuda"
@@ -61,9 +54,7 @@ class SentenceTransformerEmbeddings(Embeddings):
         return self.model.encode([text], convert_to_numpy=True)[0].tolist()
 
 
-# -------------------------------
-# LANGGRAPH STATE
-# -------------------------------
+
 
 class RAGState(TypedDict, total=False):
     question: str
@@ -72,15 +63,11 @@ class RAGState(TypedDict, total=False):
     documents: List[Document]
     retrieved_docs: List[Document]
     answer: str
-    skip_processing: bool  # Flag to skip loading/chunking
+    skip_processing: bool  
 
 
-# -------------------------------
-# HELPER FUNCTIONS
-# -------------------------------
 
 def get_index_paths(ticker: str) -> tuple:
-    """Get paths for storing FAISS index and documents."""
     ticker = ticker.upper()
     faiss_path = os.path.join(RAG_INDEX_DIR, f"{ticker}_faiss")
     docs_path = os.path.join(RAG_INDEX_DIR, f"{ticker}_docs.json")
@@ -89,7 +76,6 @@ def get_index_paths(ticker: str) -> tuple:
 
 
 def index_exists(ticker: str) -> bool:
-    """Check if index files exist for a ticker."""
     faiss_path, docs_path, metadata_path = get_index_paths(ticker)
     return (
         os.path.exists(faiss_path) and 
@@ -99,7 +85,6 @@ def index_exists(ticker: str) -> bool:
 
 
 def save_indexes(ticker: str, faiss_db: FAISS, documents: List[Document]):
-    """Save FAISS index and documents as JSON."""
     faiss_path, docs_path, metadata_path = get_index_paths(ticker)
     
     # Save FAISS
@@ -130,7 +115,6 @@ def save_indexes(ticker: str, faiss_db: FAISS, documents: List[Document]):
 
 
 def load_indexes(ticker: str, embedding_model: Embeddings) -> tuple:
-    """Load FAISS and recreate BM25 from saved documents."""
     faiss_path, docs_path, metadata_path = get_index_paths(ticker)
     
     # Load FAISS
@@ -160,7 +144,6 @@ def load_indexes(ticker: str, embedding_model: Embeddings) -> tuple:
 
 
 def elements_to_text(elements):
-    """Convert unstructured elements to text, preserving table structure."""
     lines = []
     for el in elements:
         text = getattr(el, "text", "").strip()
@@ -177,7 +160,6 @@ def elements_to_text(elements):
 
 
 def find_filing(ticker: str) -> Optional[Path]:
-    """Find filing file for given ticker."""
     filing_dir = Path(FILINGS_DIR)
     ticker_upper = ticker.upper()
     ticker_lower = ticker.lower()
@@ -198,16 +180,6 @@ def find_filing(ticker: str) -> Optional[Path]:
     return None
 
 def download_sec_filing(ticker: str, filing_type: str = "10-K") -> Optional[Path]:
-    """
-    Download the latest SEC filing for a ticker and save it to the filings directory.
-    
-    Args:
-        ticker: Stock ticker symbol (e.g., "AAPL")
-        filing_type: Type of filing to download (default: "10-K")
-    
-    Returns:
-        Path to the saved filing file, or None if download failed
-    """
     ticker = ticker.upper()
     api_key = os.getenv("SEC_API_KEY")
     
@@ -246,7 +218,6 @@ def download_sec_filing(ticker: str, filing_type: str = "10-K") -> Optional[Path
         
         # Generate filename hash from accession number or URL
         if filing_accession:
-            # Use accession number to create unique hash
             file_hash = hashlib.md5(filing_accession.encode()).hexdigest()[:16]
         else:
             # Fallback to URL hash
@@ -288,9 +259,6 @@ def download_sec_filing(ticker: str, filing_type: str = "10-K") -> Optional[Path
         traceback.print_exc()
         return None
 
-# -------------------------------
-# WORKFLOW NODES
-# -------------------------------
 
 # Node 1: Check Index
 def check_index_node(state: RAGState) -> Dict[str, Any]:
@@ -306,8 +274,6 @@ def check_index_node(state: RAGState) -> Dict[str, Any]:
 
 # Node 2: Load Filing
 def load_filing_node(state: RAGState) -> Dict[str, Any]:
-    """Loads the filing HTML. Automatically downloads if not found."""
-    # Skip if we're using cached index
     if state.get("skip_processing", False):
         return {}
     
@@ -360,8 +326,6 @@ text_splitter = RecursiveCharacterTextSplitter(
 
 
 def chunk_node(state: RAGState) -> Dict[str, Any]:
-    """Splits raw text into documents."""
-    # Skip if we're using cached index
     if state.get("skip_processing", False):
         return {}
 
@@ -587,10 +551,6 @@ Answer clearly and concisely:"""
     return {"answer": answer}
 
 
-# -------------------------------
-# BUILD WORKFLOW
-# -------------------------------
-
 workflow = StateGraph(RAGState)
 
 workflow.add_node("check_index", check_index_node)
@@ -609,13 +569,7 @@ workflow.add_edge("answer", END)
 
 rag_graph = workflow.compile()
 
-
-# -------------------------------
-# RAG FUNCTION
-# -------------------------------
-
 def run_rag_query(question: str, ticker: str) -> str:
-    """Runs the RAG process by dynamically loading, indexing, and querying a filing."""
     ticker = ticker.upper() 
     
     try:
@@ -633,12 +587,7 @@ def run_rag_query(question: str, ticker: str) -> str:
         return "An unexpected error occurred during the financial analysis lookup."
 
 
-# -------------------------------
-# UTILITY FUNCTIONS
-# -------------------------------
-
 def clear_index(ticker: str):
-    """Clear cached index for a ticker."""
     faiss_path, docs_path, metadata_path = get_index_paths(ticker)
     
     for path in [faiss_path, docs_path, metadata_path]:
@@ -653,7 +602,6 @@ def clear_index(ticker: str):
 
 
 def clear_all_indexes():
-    """Clear all cached indexes."""
     import shutil
     if os.path.exists(RAG_INDEX_DIR):
         shutil.rmtree(RAG_INDEX_DIR)
@@ -662,31 +610,10 @@ def clear_all_indexes():
 
 
 def download_filing_for_ticker(ticker: str, filing_type: str = "10-K") -> Optional[Path]:
-    """
-    Utility function to manually download a SEC filing for a ticker.
-    Useful for batch downloads or pre-populating the filings directory.
-    
-    Args:
-        ticker: Stock ticker symbol (e.g., "AAPL", "TSLA")
-        filing_type: Type of filing to download ("10-K" or "10-Q")
-    
-    Returns:
-        Path to the downloaded file, or None if download failed
-    
-    Example:
-        >>> download_filing_for_ticker("TSLA", "10-K")
-        >>> download_filing_for_ticker("GOOGL", "10-Q")
-    """
     return download_sec_filing(ticker, filing_type)
 
 
 def list_available_filings() -> List[str]:
-    """
-    List all tickers that have filings available in the filings directory.
-    
-    Returns:
-        List of ticker symbols (uppercase)
-    """
     filing_dir = Path(FILINGS_DIR)
     if not filing_dir.exists():
         return []
@@ -695,7 +622,6 @@ def list_available_filings() -> List[str]:
     available_tickers = set()
     
     for f in available_files:
-        # Extract ticker from filename (format: TICKER_FILING-TYPE_hash.html)
         ticker_part = f.stem.split('_')[0].upper()
         available_tickers.add(ticker_part)
     

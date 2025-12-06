@@ -29,13 +29,7 @@ SECTION_PATTERNS = {
     "7":  [r"item\s*7\b", r"management", r"md&a"],
 }
 
-
-# ----------------------------------------------------------
-#  NORMALIZE RAW SECTION INPUT → SEC SUPPORTED ITEM CODE
-# ----------------------------------------------------------
-
 def _normalize_to_item_code(raw: str) -> str:
-    """Convert inputs like 'part2item1a', 'item 1a', '1a' → '1A'."""
     if not raw:
         return ""
 
@@ -74,11 +68,6 @@ def _normalize_to_item_code(raw: str) -> str:
 
     return ""
 
-
-# ----------------------------------------------------------
-#  DOWNLOAD FILING HTML
-# ----------------------------------------------------------
-
 def _download_html(url: str) -> str:
     headers = {"User-Agent": "FinSight Agent (contact: pranaybhagwat04@gmail.com)"}
     resp = requests.get(url, headers=headers, timeout=20)
@@ -86,12 +75,7 @@ def _download_html(url: str) -> str:
     return resp.text
 
 
-# ----------------------------------------------------------
-#  FALLBACK HTML PARSER
-# ----------------------------------------------------------
-
 def _fallback_extract_from_html(html: str, item: str) -> str:
-    """Extract section using BeautifulSoup if Extractor API fails."""
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text(separator="\n", strip=True)
     lines = text.split("\n")
@@ -115,15 +99,7 @@ def _fallback_extract_from_html(html: str, item: str) -> str:
     return section_text[:4000]
 
 
-# ----------------------------------------------------------
-#  UTIL: pretty-print the extracted section to terminal
-# ----------------------------------------------------------
-
 def _print_section_to_terminal(ticker: str, filing_type: str, section_label: str, text: str, filing_url: str = None, filing_date: str = None):
-    """
-    Prints the section text (truncated to 4000 chars) to terminal using rich.
-    Includes a header panel with metadata and a syntax-highlighted block for readability.
-    """
     header = f"{ticker} — {filing_type} — Item {section_label}"
     meta_lines = []
     if filing_date:
@@ -135,14 +111,8 @@ def _print_section_to_terminal(ticker: str, filing_type: str, section_label: str
 
     # Ensure text is not too long for terminal — already truncated upstream but double-check
     display_text = text if len(text) <= 4000 else text[:4000] + "\n\n[truncated]"
-    # Use Syntax to render plain text nicely
     syntax = Syntax(display_text, "text", theme="monokai", line_numbers=False)
     console.print(syntax)
-
-
-# ----------------------------------------------------------
-#  MAIN NODE
-# ----------------------------------------------------------
 
 def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
 
@@ -168,9 +138,6 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
     extractor_api = ExtractorApi(api_key=api_key)
 
     try:
-        # ----------------------------------------
-        # 1) GET LATEST FILING
-        # ----------------------------------------
         query = {
             "query": {"query_string": {"query": f"ticker:{ticker} AND formType:\"{filing_type}\""}},
             "from": "0",
@@ -187,10 +154,6 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
         filing = resp["filings"][0]
         filing_url = filing.get("linkToFilingDetails")
         filing_date = filing.get("filedAt")
-
-        # ----------------------------------------
-        # 2) TRY EXTRACTOR API
-        # ----------------------------------------
 
         extractor_error = None
 
@@ -212,7 +175,6 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
                     msg = f"Extracted item {item_code} from {ticker}."
                     console.print(Panel(msg, style="green"))
 
-                    # print the full (truncated to 4k) section to terminal
                     _print_section_to_terminal(ticker, filing_type, item_code, truncated, filing_url, filing_date)
 
                     return {
@@ -304,10 +266,6 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
                     except Exception as ex2:
                         console.print(Panel(f"Alternate {alt} failed: {ex2}", style="red"))
 
-        # ----------------------------------------
-        # 3) FALLBACK TO HTML PARSING
-        # ----------------------------------------
-
         console.print("[yellow]Extractor failed → switching to fallback HTML parsing...[/yellow]")
         html = _download_html(filing_url)
 
@@ -315,14 +273,12 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
         extracted = _fallback_extract_from_html(html, fallback_key)
 
         if not extracted:
-            # Try business as very last resort
             extracted = _fallback_extract_from_html(html, "1")
             fallback_key = "1" if extracted else fallback_key
 
         if extracted:
             msg = f"(Fallback) Extracted section {fallback_key} for {ticker}."
             console.print(Panel(msg, style="green"))
-            # print the extracted section to terminal
             _print_section_to_terminal(ticker, filing_type, fallback_key, extracted, filing_url, filing_date)
             return {
                 "tool_result": extracted,
@@ -338,7 +294,6 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
                 }
             }
 
-        # FAIL
         msg = f"Extractor API + fallback failed. Error={extractor_error}"
         console.print(Panel(msg, style="red"))
         return {"final_answer": msg, "messages": [AIMessage(content=msg)]}
