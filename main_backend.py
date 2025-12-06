@@ -518,7 +518,6 @@ JSON:
         if not response_str or not response_str.strip():
             raise ValueError("Empty response from LLM")
         
-        # Clean response - remove markdown code blocks if present
         response_str = response_str.strip()
         if response_str.startswith("```"):
             response_str = re.sub(r'```(?:json)?\s*|\s*```', '', response_str).strip()
@@ -539,13 +538,10 @@ JSON:
         
         if intent not in valid_intents:
             print(f"⚠️ Invalid intent from LLM: {intent}. Using fallback.")
-            # Intelligent fallback
             if has_section_keyword:
                 intent = "get_sec_filing_section"
             
-            # 2. Final Fallback: Non-Financial Query
             else:
-                # If the query failed LLM validation AND didn't match specific financial keywords, it's irrelevant.
                 intent = "non_financial_query" 
         
         print(f"✓ Classified intent: {intent}")
@@ -633,16 +629,15 @@ def conversational_llm_node(state: FinanceAgentState) -> dict:
         role = "User" if isinstance(msg, HumanMessage) else "Assistant"
         history += f"{role}: {msg.content}\n"
     
-    # System prompt with capabilities
     system_prompt = f"""You are FinSight 💰📈, a friendly financial analysis AI assistant.
 
 YOUR CAPABILITIES:
-✅ Generate stock performance charts (need ticker symbol like AAPL, TSLA)
-✅ Get current stock data: price, P/E ratio, market cap
-✅ Fetch recent financial news about companies
-✅ Extract SEC filing sections (10-K, 10-Q risk factors, business description, etc.)
-✅ Answer analytical questions about SEC filings using semantic search
-✅ Generate comprehensive analyst reports combining all data
+- Generate stock performance charts (need ticker symbol like AAPL, TSLA)
+- Get current stock data: price, P/E ratio, market cap
+- Fetch recent financial news about companies
+- Extract SEC filing sections (10-K, 10-Q risk factors, business description, etc.)
+- Answer analytical questions about SEC filings using semantic search
+- Generate comprehensive analyst reports combining all data
 
 CONVERSATION RULES:
 - Be warm, conversational, and helpful
@@ -813,7 +808,6 @@ async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
         
         print(f"✓ RAG returned {len(rag_answer)} characters")
         
-        # Format answer nicely
         formatted_answer = f"📄 Based on {ticker}'s SEC filings:\n\n{rag_answer}"
         
         return {
