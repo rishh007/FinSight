@@ -3,6 +3,8 @@
 
 FinSight is a lightweight financial analytics + conversational assistant toolkit. It combines data extraction, charting, SEC/filing parsing, news ingestion, and a WebSocket-based chat UI so users can ask for charts, filings, news summaries, and concise analyst reports.
 
+Deepwiki - https://deepwiki.com/rishh007/FinSight
+
 ---
 
 ## Quick repo layout
