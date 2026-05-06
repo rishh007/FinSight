@@ -2,8 +2,6 @@ sec_api
 python-dotenv
 pandas
 matplotlib
-newsapi
-bs4
 yfinance>=0.2.40
 markdown
 langchain-ollama==0.2.3
