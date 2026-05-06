@@ -1,4 +1,4 @@
-#  main_backend.py 
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException,Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -60,13 +60,13 @@ os.makedirs("charts", exist_ok=True)
 os.makedirs("reports", exist_ok=True)
 os.makedirs("static", exist_ok=True)
 
-# Mount static directories for serving files
+
 app.mount("/charts", StaticFiles(directory="charts"), name="charts")
 app.mount("/reports", StaticFiles(directory="reports"), name="reports")
 app.mount("/static", StaticFiles(directory="static", html=True), name="static")
 
 
-# Serve index.html at the root explicitly
+
 @app.get("/", response_class=FileResponse)
 async def serve_index():
     return FileResponse("static/frontend.html")
@@ -114,9 +114,8 @@ def resolve_coreferences(query: str, state: FinanceAgentState) -> str:
     last_ticker = state.get("ticker")
     
     if not last_company:
-        return query  # Nothing to resolve
+        return query  
     
-    # Pronoun mappings
     possessive_pronouns = {
         r'\bits\b': f"{last_company}'s",
         r'\btheir\b': f"{last_company}'s",
@@ -135,8 +134,7 @@ def resolve_coreferences(query: str, state: FinanceAgentState) -> str:
         r'\bthe company\b': last_company,
         r'\bsame company\b': last_company,
     }
-    
-    # Apply replacements (case-insensitive)
+
     for pattern, replacement in {**possessive_pronouns, **subject_pronouns, **references}.items():
         resolved_query = re.sub(pattern, replacement, resolved_query, flags=re.IGNORECASE)
     
@@ -145,13 +143,10 @@ def resolve_coreferences(query: str, state: FinanceAgentState) -> str:
 
 
 def extract_entities_with_context(state: FinanceAgentState) -> dict:
-    # First, run normal entity extraction
     entities = extract_entities_node(state)
     
-    # Check if this is a follow-up question
     is_follow_up = detect_follow_up(state)
     
-    # If no entities found AND this is a follow-up AND we have previous context
     if is_follow_up:
         if not entities.get("ticker") and state.get("ticker"):
             print(f"💡 Follow-up detected - using previous ticker: {state.get('ticker')}")
@@ -161,7 +156,6 @@ def extract_entities_with_context(state: FinanceAgentState) -> dict:
         if not entities.get("filing_type") and state.get("filing_type"):
             entities["filing_type"] = state.get("filing_type")
     
-    # Handle implicit references (no company mentioned at all)
     query_lower = state["user_query"].lower()
     has_pronoun = any(word in query_lower for word in ["it", "its", "they", "their", "them"])
     has_reference = any(phrase in query_lower for phrase in ["that company", "this company", "the company"])
@@ -188,17 +182,14 @@ def analyze_conversation_context(state: FinanceAgentState) -> dict:
     }
     
     if len(messages) < 2:
-        return context  # First message
+        return context  
     
-    # Check for continuation signals
     continuation_words = ["also", "and", "now", "then", "next", "additionally", "furthermore"]
     context["is_continuation"] = any(word in current_query for word in continuation_words)
     
-    # Check for comparison signals
     comparison_words = ["versus", "vs", "compared to", "compare", "difference between", "better than"]
     context["is_comparison"] = any(word in current_query for word in comparison_words)
     
-    # If continuation or comparison, not a new topic
     if context["is_continuation"] or context["is_comparison"]:
         context["is_new_topic"] = False
     
@@ -208,7 +199,6 @@ def analyze_conversation_context(state: FinanceAgentState) -> dict:
 def handle_comparative_query(state: FinanceAgentState) -> Optional[Tuple[str, str]]:
     query = state["user_query"]
     
-    # Try to extract two companies
     comparison_pattern = r'(\w+)\s+(?:vs|versus|compared to|against)\s+(\w+)'
     match = re.search(comparison_pattern, query, re.IGNORECASE)
     
@@ -236,7 +226,6 @@ async def store_file_dual(session_id: str, file_path: str, file_type: str, file_
         if not mime_type:
             mime_type = "application/octet-stream"
         
-        # Store binary data
         binary_doc = await db.file_binaries.insert_one({
             "session_id": session_id,
             "type": file_type,
@@ -267,8 +256,6 @@ async def store_file_dual(session_id: str, file_path: str, file_type: str, file_
         return None
 
 def non_financial_query_node(state: FinanceAgentState) -> dict:
-    """Return a canned response for queries that are clearly non-financial or failed classification."""
-    
     response = "🤖 **Sorry!** My focus is financial analysis. Please ask me about a specific company's stock, news, or SEC filings (e.g., 'Show me Apple's stock chart' or 'What are the risks in Microsoft's 10-K?')."
     
     return {
@@ -289,7 +276,6 @@ NON_FINANCIAL_KEYWORDS = [
 ]
 
 def is_non_financial_query(q):
-    # No tickers AND contains obvious non-financial terms
     if not re.search(r"\b[A-Z]{2,6}\b", q):
         if any(word in q for word in NON_FINANCIAL_KEYWORDS):
             return True
@@ -297,13 +283,8 @@ def is_non_financial_query(q):
 
 
 def classify_intent(state: FinanceAgentState) -> dict:
-    """
-    Classify user intent with improved logic for distinguishing between:
-    - get_sec_filing_section: Extract complete sections (Item 1A, risks section, etc.)
-    - rag_filing_lookup: Answer specific questions about filing content
-    """
+   
     if llm is None:
-        # Fallback to keyword-based classification
         query = state["user_query"].lower()
         if any(word in query for word in ["chart", "plot", "graph", "price", "stock"]):
             return {"intent": "get_stock_data_and_chart"}
@@ -324,14 +305,12 @@ def classify_intent(state: FinanceAgentState) -> dict:
         print("⚠ Non-financial query detected — routing to non_financial_query")
         return {"intent": "non_financial_query"}
     
-    # 1. Greetings - catch early
     greeting_keywords = ["hello", "hi", "hey"]
-    is_first_message = len(messages) <= 1  # Only user's first message
+    is_first_message = len(messages) <= 1  
     
     if is_first_message and any(keyword == query_lower.strip() for keyword in greeting_keywords):
         return {"intent": "greeting_help"}
     
-    # 2. Follow-up conversational queries (after initial greeting)
     conversational_keywords = [
         "what can you do", "what can u do", "help", "help me", 
         "how do you work", "what are you", "who are you",
@@ -339,35 +318,29 @@ def classify_intent(state: FinanceAgentState) -> dict:
         "tell me more", "explain", "how does this work"
     ]
     
-    # Check if it's a conversational query (not a financial task)
     is_conversational = any(phrase in query_lower for phrase in conversational_keywords)
-    has_no_ticker = not any(char.isupper() for char in user_query)  # No ticker symbols
+    has_no_ticker = not any(char.isupper() for char in user_query)  
     
     if is_conversational and has_no_ticker and len(query_lower.split()) < 15:
         return {"intent": "conversational_llm"}  
     
-    # 2. Chart requests - very explicit
     chart_keywords = ["chart", "plot", "graph", "visualize", "visualise", "show me a chart"]
     if any(keyword in query_lower for keyword in chart_keywords):
         return {"intent": "get_stock_data_and_chart", "create_chart": True}
     
-    # 3. News requests - explicit keywords
     news_keywords = ["news", "recent news", "latest news", "what's happening with", "headlines"]
     if any(keyword in query_lower for keyword in news_keywords):
         return {"intent": "get_financial_news"}
     
-    # 4. Specific metrics - P/E, market cap, etc.
     metric_keywords = ["p/e ratio", "pe ratio", "market cap", "current price", "stock price"]
     if any(keyword in query_lower for keyword in metric_keywords):
         return {"intent": "get_stock_data_and_chart", "create_chart": False}
     
-    # 5. Report generation - explicit
     report_keywords = ["generate report", "full report", "analyst report", "comprehensive analysis", "create a report"]
     if any(keyword in query_lower for keyword in report_keywords):
         return {"intent": "get_report"}
     
     
-    # Known section keywords that map to actual 10-K/10-Q sections
     section_keywords = {
         "risk": "Item 1A",
         "risks": "Item 1A", 
@@ -385,18 +358,18 @@ def classify_intent(state: FinanceAgentState) -> dict:
         "exhibits": "Item 15"
     }
     
-    # Patterns for explicit section requests
+    
     section_patterns = [
         r"item\s+\d+[a-z]?",  # "Item 1A", "Item 7"
         r"section\s+\d+",
         r"part\s+[iv]+",
     ]
     
-    # Check if query explicitly mentions a known section
+    
     has_section_keyword = any(keyword in query_lower for keyword in section_keywords.keys())
     has_section_pattern = any(re.search(pattern, query_lower) for pattern in section_patterns)
     
-    # Phrases that indicate they want the ENTIRE section, not analysis
+
     section_request_phrases = [
         "extract",
         "show me",
@@ -405,7 +378,7 @@ def classify_intent(state: FinanceAgentState) -> dict:
         "retrieve",
         "find the",
         "display",
-        "what are the risks",  # This is KEY - they want the risks section!
+        "what are the risks",  
         "what risks",
         "list the risks",
         "show risks"
@@ -549,11 +522,10 @@ JSON:
     except json.JSONDecodeError as e:
         print(f"⚠️ JSON parse error: {e}")
         print(f"Raw response: {response_str[:200] if response_str else 'None'}")
-        # Fallback based on section keywords
         if has_section_keyword:
             intent = "get_sec_filing_section"
         else:
-           intent = "non_financial_query" # <-- NEW FALLBACK INTENT
+           intent = "non_financial_query" 
 
     except Exception as e:
         print(f"❌ Generic error during classification: {e}")
@@ -571,7 +543,6 @@ JSON:
     return updates
 
 def merge_entities(state, updates):
-    """Safely merge new entities without overwriting previous ones with None"""
     if updates is None:
         return state
 
@@ -657,11 +628,9 @@ Respond naturally and guide them to use your features:"""
     
     try:
         if llm:
-            # Use LLM without JSON format for natural conversation
             llm_conversational = OllamaLLM(model="llama3.2")  
             response = llm_conversational.invoke(system_prompt)
             
-            # Clean up response if needed
             response = response.strip()
             
             print(f"💬 Conversational LLM response: {response[:100]}...")
@@ -672,7 +641,6 @@ Respond naturally and guide them to use your features:"""
                 "messages": [AIMessage(content=response)]
             }
         else:
-            # Fallback if LLM not available
             fallback = "I'm here to help with financial analysis! Ask me about any publicly traded company (include the ticker symbol like AAPL or TSLA)."
             return {
                 "final_answer": fallback,
@@ -699,7 +667,6 @@ def create_user_friendly_message(intent: str, state: dict) -> str:
         pe_ratio = metrics.get("pe_ratio", "N/A")
         market_cap = metrics.get("market_cap", "N/A")
         
-        # Format market cap
         if isinstance(market_cap, (int, float)) and market_cap > 0:
             if market_cap >= 1e12:
                 market_cap_str = f"${market_cap/1e12:.2f}T"
@@ -736,7 +703,7 @@ def create_user_friendly_message(intent: str, state: dict) -> str:
         filing_type = state.get("filing_type", "10-K")
         section = state.get("section", "")
         tool_result = state.get("tool_result", "")
-        # Handle None or empty result
+        
         if not tool_result:
             return f"📋 Sorry, I couldn't retrieve the {filing_type} filing for **{company_name}**. The filing might not be available or there was an error accessing it."
         preview = tool_result[:500] + "..." if len(tool_result) > 500 else tool_result
@@ -765,7 +732,7 @@ async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
         ticker = state.get("ticker")
         query = state.get("user_query")
         
-        # Validate ticker exists
+        
         if not ticker:
             error_message = "I need a company ticker symbol (e.g., AAPL, MSFT) to search their SEC filings. Please include a ticker in your question."
             print(f"✗ RAG lookup failed: No ticker provided")
@@ -782,10 +749,10 @@ async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
         print(f"🔍 Running RAG query for {ticker}...")
         print(f"   Query: {query[:100]}...")
 
-        # Call RAG function
+        
         rag_answer = run_rag_query(query, ticker)
         
-        # Check if answer is valid
+        
         if not rag_answer or rag_answer.strip() == "":
             error_message = f"I couldn't find relevant information in {ticker}'s SEC filings for your query."
             print(f"⚠️  RAG returned empty answer")
@@ -796,7 +763,7 @@ async def rag_filing_lookup_node(state: FinanceAgentState) -> dict:
                 "messages": []
             }
         
-        # Check for error messages from RAG
+        
         if rag_answer.startswith("Error:") or "error" in rag_answer.lower()[:50]:
             print(f"⚠️  RAG returned error: {rag_answer[:100]}")
             return {
@@ -921,13 +888,12 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
         state.update(news_result)
         
         state["filing_type"] = "10-K"
-        state["section"] = "1A"  # Risk Factors section
+        state["section"] = "1A"  
         print(f"📋 Report: Requesting filing_type={state['filing_type']}, section={state['section']}")
         
         sec_result = await asyncio.to_thread(get_sec_filing_section_node, state)
         state.update(sec_result)
         
-        # Verify that we got the risk data
         if sec_result.get("tool_result"):
             print(f"✅ Report: Risk data retrieved ({len(str(sec_result.get('tool_result')))} chars)")
         else:
@@ -948,11 +914,9 @@ async def process_query(state: FinanceAgentState) -> FinanceAgentState:
 async def get_or_create_session(session_id: str):
     session = await db.sessions.find_one({"session_id": session_id})
 
-    # If found → return it
     if session:
         return session_id, session
 
-    # Otherwise → create new session
     initial_state = {
         "user_query": None,
         "messages": [], 
@@ -1002,7 +966,6 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
     try:
         count = await db.sessions.count_documents({})
         return {
@@ -1018,12 +981,11 @@ async def health_check():
 
 @app.get("/api/sessions/{session_id}/files")
 async def get_session_files(session_id: str):
-    """Get all files generated in a session"""
     try:
         cursor = db.files.find({"session_id": session_id})
         files = await cursor.to_list(length=5000)
         
-        # Convert ObjectId to string
+        
         for file in files:
             file["_id"] = str(file["_id"])
             if "binary_id" in file:
@@ -1057,7 +1019,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     })
 
     try:
-        # Send initial greeting
+        
         greeting_state = greeting_help_node(session_data["state"])
         await websocket.send_json({
             "type": "message",
@@ -1065,7 +1027,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             "intent": "greeting"
         })
 
-        # Main loop
+        
         while True:
             raw_message = await websocket.receive_text()
 
@@ -1076,7 +1038,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             user_message = message_data.get("message", "")
 
-            # Exit condition
             if user_message.lower() in ["exit", "quit"]:
                 await websocket.send_json({
                     "type": "message",
@@ -1084,39 +1045,31 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
                 break
 
-            # Retrieve existing state dictionary
             state_dict = session_data["state"].copy()
             
-            # Update the state
             state_dict["user_query"] = user_message
             state_dict["messages"].append(HumanMessage(content=user_message))
-            # Convert to FinanceAgentState
+            
             try:
                 state_obj = FinanceAgentState(state_dict)
             except Exception:
                 state_obj = FinanceAgentState()
                 state_obj.update(state_dict)
 
-            # Inform client of status
             await websocket.send_json({
                 "type": "status",
                 "content": "Processing your request..."
             })
 
-            # Run through agent workflow
             try:
                 updated_state_obj = await process_query(state_obj)
-
-                # Convert back to plain dict for saving
                 try:
                     updated_state = dict(updated_state_obj)
                 except Exception:
                     updated_state = updated_state_obj
 
-                # Create a deep copy for database storage
                 db_state = updated_state.copy()
                 
-                # Convert LangChain message objects to serializable dicts for database only
                 if "messages" in db_state and db_state["messages"]:
                     serializable_messages = []
                     for msg in db_state["messages"]:
@@ -1256,7 +1209,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 @app.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """Delete a session and its messages/files metadata"""
     try:
         result = await db.sessions.delete_one({"session_id": session_id})
         await db.messages.delete_many({"session_id": session_id})
@@ -1273,7 +1225,6 @@ async def delete_session(session_id: str):
 
 @app.get("/sessions/{session_id}/history")
 async def get_session_history(session_id: str):
-    """Get conversation history for a session"""
     try:
         result = await db.sessions.find_one({"session_id": session_id})
         if not result:
@@ -1298,7 +1249,6 @@ async def get_session_history(session_id: str):
 
 @app.get("/api/files/binary/{file_id}")
 async def get_file_binary(file_id: str):
-    """Download file binary from MongoDB"""
     try:
         file_doc = await db.file_binaries.find_one({"_id": ObjectId(file_id)})
         if not file_doc:
@@ -1321,12 +1271,10 @@ async def get_session_files_detailed(session_id: str):
         cursor = db.files.find({"session_id": session_id})
         files = await cursor.to_list(length=5000)
         
-        # Convert ObjectId to string for JSON serialization
         for file in files:
             file["_id"] = str(file["_id"])
             if "binary_id" in file:
                 file["binary_id"] = str(file["binary_id"])
-                # Add download URL for MongoDB binary
                 file["download_url"] = f"/api/files/binary/{file['binary_id']}"
         
         return {
@@ -1340,9 +1288,7 @@ async def get_session_files_detailed(session_id: str):
 
 @app.post("/api/files/restore/{session_id}")
 async def restore_files_from_db(session_id: str):
-    """Restore files from MongoDB to filesystem"""
     try:
-        # Get all files for this session
         cursor = db.files.find({"session_id": session_id})
         files = await cursor.to_list(length=5000)
         
@@ -1357,13 +1303,10 @@ async def restore_files_from_db(session_id: str):
                     errors.append(f"Binary not found for {file_meta['name']}")
                     continue
                 
-                # Reconstruct filesystem path from URL
                 file_path = file_meta["path"].lstrip("/")
-                
-                # Ensure directory exists
+        
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                
-                # Write file to filesystem
+            
                 with open(file_path, 'wb') as f:
                     f.write(binary_doc["binary_data"])
                 
@@ -1384,24 +1327,18 @@ async def restore_files_from_db(session_id: str):
 
 @app.delete("/api/sessions/{session_id}/complete")
 async def delete_session_complete(session_id: str):
-    """Completely delete a session including all files and binaries"""
     try:
-        # Delete from all collections
         session_result = await db.sessions.delete_one({"session_id": session_id})
         messages_result = await db.messages.delete_many({"session_id": session_id})
         
-        # Get file metadata to delete binaries
         files_cursor = db.files.find({"session_id": session_id})
         files = await files_cursor.to_list(length=5000)
         
-        # Delete binary data
         binary_ids = [f["binary_id"] for f in files if "binary_id" in f]
         binaries_result = await db.file_binaries.delete_many({"_id": {"$in": binary_ids}})
         
-        # Delete file metadata
         files_result = await db.files.delete_many({"session_id": session_id})
         
-        # Optionally delete filesystem files
         for file_meta in files:
             try:
                 file_path = file_meta["path"].lstrip("/")
@@ -1430,7 +1367,6 @@ async def delete_session_complete(session_id: str):
     
 @app.post("/auth/register", response_model=dict)
 async def register(user: UserRegister):
-    """Register a new user"""
     try:
         user_id = create_user(user.username, user.email, user.password)
         return {
@@ -1471,7 +1407,6 @@ async def login(user: UserLogin):
 
 @app.get("/auth/me")
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    """Get current user information"""
     return {
         "id": current_user["id"],
         "username": current_user["username"],
