@@ -128,7 +128,6 @@ def create_price_chart(company_name, symbol=None, days=90):
         return None, None, None
 
 def add_cell_background_color(cell, color_hex):
-    """Helper function to add background color to table cells"""
     try:
         shading_elm = parse_xml(r'<w:shd {} w:fill="{}"/>'.format(nsdecls('w'), color_hex))
         cell._tc.get_or_add_tcPr().append(shading_elm)
@@ -138,7 +137,6 @@ def add_cell_background_color(cell, color_hex):
         return False
 
 def add_gradient_header(doc):
-    """Add a beautiful gradient header section"""
     try:
         header_section = doc.sections[0]
         header = header_section.header
@@ -149,19 +147,15 @@ def add_gradient_header(doc):
         return False
 
 def truncate_text(text, max_length=2000):
-    """Truncate text to a maximum length with ellipsis"""
+    
     if not text or len(str(text)) <= max_length:
         return str(text) if text else ""
     return str(text)[:max_length] + "...\n\n[Content truncated for brevity. See full filing for complete details.]"
 
 def create_beautiful_risk_section(doc, risk_summary):
-    """Create a visually striking risk section with warning styling"""
-    
-    # Risk section header with icon and color
     risk_header = doc.add_paragraph()
     risk_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
     
-    # Warning icon and title
     icon_run = risk_header.add_run('⚠️ ')
     icon_run.font.size = Pt(20)
     
@@ -169,7 +163,7 @@ def create_beautiful_risk_section(doc, risk_summary):
     title_run.font.name = 'Arial'
     title_run.font.size = Pt(18)
     title_run.font.bold = True
-    title_run.font.color.rgb = RGBColor(220, 53, 69)  # Bootstrap danger red
+    title_run.font.color.rgb = RGBColor(220, 53, 69)  
     
     subtitle_para = doc.add_paragraph()
     subtitle_run = subtitle_para.add_run('From SEC 10-K Filing - Item 1A Risk Factors')
@@ -178,15 +172,15 @@ def create_beautiful_risk_section(doc, risk_summary):
     subtitle_run.font.italic = True
     subtitle_run.font.color.rgb = RGBColor(108, 117, 125)
     
-    # Create a bordered box effect with table
+   
     risk_table = doc.add_table(rows=1, cols=1)
     risk_table.style = 'Table Grid'
     risk_cell = risk_table.rows[0].cells[0]
     
-    # Add colored border
-    add_cell_background_color(risk_cell, 'FFF3CD')  # Light warning yellow
+   
+    add_cell_background_color(risk_cell, 'FFF3CD')  
     
-    # Add risk content
+
     if risk_summary and str(risk_summary).strip() and str(risk_summary).lower() not in ["none", "n/a"]:
         truncated_risk = truncate_text(risk_summary, max_length=3000)
         risk_para = risk_cell.paragraphs[0]
@@ -209,7 +203,7 @@ def create_beautiful_risk_section(doc, risk_summary):
     doc.add_paragraph()  # Spacing
 
 def create_beautiful_metrics_table(doc, key_metrics):
-    """Create a stunning metrics table with alternating row colors"""
+    
     
     metrics_header = doc.add_paragraph()
     icon_run = metrics_header.add_run('💰 ')
@@ -219,18 +213,18 @@ def create_beautiful_metrics_table(doc, key_metrics):
     title_run.font.name = 'Arial'
     title_run.font.size = Pt(18)
     title_run.font.bold = True
-    title_run.font.color.rgb = RGBColor(40, 167, 69)  # Bootstrap success green
+    title_run.font.color.rgb = RGBColor(40, 167, 69)  
     
     table = doc.add_table(rows=1, cols=2)
     table.style = 'Light List Accent 1'
     
-    # Enhanced header row
+   
     header_cells = table.rows[0].cells
     header_cells[0].text = 'Metric'
     header_cells[1].text = 'Value'
     
     for cell in header_cells:
-        add_cell_background_color(cell, '007BFF')  # Bootstrap primary blue
+        add_cell_background_color(cell, '007BFF')  
         for paragraph in cell.paragraphs:
             for run in paragraph.runs:
                 run.font.name = 'Arial'
@@ -238,7 +232,7 @@ def create_beautiful_metrics_table(doc, key_metrics):
                 run.font.size = Pt(11)
                 run.font.color.rgb = RGBColor(255, 255, 255)
     
-    # Add formatted metrics with alternating colors
+   
     metric_labels = {
         'current_price': '💵 Current Price',
         'market_cap': '🏢 Market Cap',
@@ -248,7 +242,7 @@ def create_beautiful_metrics_table(doc, key_metrics):
         'week_52_low': '⬇️ 52-Week Low'
     }
     
-    row_colors = ['F8F9FA', 'FFFFFF']  # Alternating light gray and white
+    row_colors = ['F8F9FA', 'FFFFFF'] 
     added_rows = 0
     
     for key, value in key_metrics.items():
@@ -257,7 +251,6 @@ def create_beautiful_metrics_table(doc, key_metrics):
                 row = table.add_row().cells
                 row[0].text = metric_labels.get(key, key.replace('_', ' ').title())
                 
-                # Format value based on type
                 if key == 'market_cap' and isinstance(value, (int, float)) and value > 0:
                     if value >= 1e12:
                         formatted_value = f"${value/1e12:.2f}T"
@@ -272,7 +265,7 @@ def create_beautiful_metrics_table(doc, key_metrics):
                 
                 row[1].text = formatted_value
                 
-                # Apply alternating colors
+               
                 color = row_colors[added_rows % 2]
                 for cell in row:
                     add_cell_background_color(cell, color)
@@ -280,7 +273,7 @@ def create_beautiful_metrics_table(doc, key_metrics):
                         for run in paragraph.runs:
                             run.font.name = 'Arial'
                             run.font.size = Pt(10)
-                            # Make value bold
+                            
                             if cell == row[1]:
                                 run.font.bold = True
                                 run.font.color.rgb = RGBColor(0, 123, 255)
@@ -295,7 +288,7 @@ def create_beautiful_metrics_table(doc, key_metrics):
         console.print(f"✅ Added {added_rows} metrics to table")
 
 def create_enhanced_docx_report(company_name, risk_summary, stock_performance_text, news_articles, key_metrics):
-    """Create a stunning professional DOCX report with modern design"""
+    
     if not DOCX_AVAILABLE:
         console.print(Panel("❌ Cannot create DOCX: python-docx not available", style="bold red"))
         return None
@@ -304,7 +297,7 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         console.print("📄 Initializing beautiful document...")
         doc = Document()
         
-        # Set document margins
+        
         sections = doc.sections
         for section in sections:
             section.top_margin = Inches(0.8)
@@ -312,8 +305,7 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
             section.left_margin = Inches(1)
             section.right_margin = Inches(1)
         
-        # ========== STUNNING HEADER SECTION ==========
-        # Title with gradient effect (simulated with colors)
+    
         title_para = doc.add_paragraph()
         title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
@@ -321,18 +313,17 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         title_run.font.name = 'Arial'
         title_run.font.size = Pt(28)
         title_run.font.bold = True
-        title_run.font.color.rgb = RGBColor(13, 71, 161)  # Deep blue
+        title_run.font.color.rgb = RGBColor(13, 71, 161)  
         
-        # Company name with accent color
+       
         company_para = doc.add_paragraph()
         company_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         company_run = company_para.add_run(str(company_name))
         company_run.font.name = 'Arial'
         company_run.font.size = Pt(24)
         company_run.font.bold = True
-        company_run.font.color.rgb = RGBColor(220, 53, 69)  # Accent red
-        
-        # Elegant date stamp
+        company_run.font.color.rgb = RGBColor(220, 53, 69)  
+   
         date_para = doc.add_paragraph()
         date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         date_run = date_para.add_run(f'Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}')
@@ -341,7 +332,7 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         date_run.font.italic = True
         date_run.font.color.rgb = RGBColor(108, 117, 125)
         
-        # Decorative separator
+     
         separator_para = doc.add_paragraph()
         separator_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         separator_run = separator_para.add_run('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -349,7 +340,7 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         
         doc.add_paragraph()
         
-        # ========== CHART SECTION ==========
+       
         console.print("📈 Creating and inserting chart...")
         chart_path, current_price, symbol = create_price_chart(company_name)
         if chart_path and os.path.exists(chart_path):
@@ -363,7 +354,7 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
             except Exception as e:
                 console.print(f"⚠️ Could not add chart to document: {e}")
         
-        # ========== EXECUTIVE SUMMARY ==========
+        
         exec_header = doc.add_paragraph()
         exec_icon = exec_header.add_run('📋 ')
         exec_icon.font.size = Pt(18)
@@ -387,16 +378,16 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         
         doc.add_paragraph()
         
-        # ========== KEY METRICS TABLE ==========
+       
         if key_metrics and isinstance(key_metrics, dict) and any(key_metrics.values()):
             console.print("📊 Adding beautiful metrics table...")
             create_beautiful_metrics_table(doc, key_metrics)
         
-        # ========== RISK ANALYSIS SECTION ==========
+        
         console.print("⚠️ Adding enhanced risk section...")
         create_beautiful_risk_section(doc, risk_summary)
         
-        # ========== MARKET PERFORMANCE ==========
+      
         perf_header = doc.add_paragraph()
         perf_icon = perf_header.add_run('📈 ')
         perf_icon.font.size = Pt(18)
@@ -416,7 +407,7 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         
         doc.add_paragraph()
         
-        # ========== NEWS SECTION ==========
+      
         news_header = doc.add_paragraph()
         news_icon = news_header.add_run('📰 ')
         news_icon.font.size = Pt(18)
@@ -457,11 +448,11 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
             news_text.font.size = Pt(11)
             news_text.font.color.rgb = RGBColor(108, 117, 125)
         
-        # ========== DISCLAIMER SECTION ==========
+        
         doc.add_paragraph()
         doc.add_paragraph()
         
-        # Decorative separator before disclaimer
+       
         separator_para2 = doc.add_paragraph()
         separator_para2.alignment = WD_ALIGN_PARAGRAPH.CENTER
         separator_run2 = separator_para2.add_run('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
@@ -477,11 +468,11 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         disclaimer_title.font.bold = True
         disclaimer_title.font.color.rgb = RGBColor(220, 53, 69)
         
-        # Disclaimer in bordered box
+      
         disclaimer_table = doc.add_table(rows=1, cols=1)
         disclaimer_table.style = 'Table Grid'
         disclaimer_cell = disclaimer_table.rows[0].cells[0]
-        add_cell_background_color(disclaimer_cell, 'F8D7DA')  # Light red background
+        add_cell_background_color(disclaimer_cell, 'F8D7DA')  
         
         disclaimer_para = disclaimer_cell.paragraphs[0]
         disclaimer_text = disclaimer_para.add_run(
@@ -506,20 +497,15 @@ def create_enhanced_docx_report(company_name, risk_summary, stock_performance_te
         return None
 
 def curate_report_node(state: FinanceAgentState) -> dict:
-    """
-    Synthesizes information from multiple sources to generate a comprehensive
-    beautiful financial analyst report.
-    """
     
     console.print(Panel("📄 NODE: Generating Beautiful Professional Report", style="bold green"))
 
-    # --- 1. RETRIEVE DATA FROM STATE ---
     company_name = state.get("company_name", "Unknown Company")
     ticker = state.get("ticker", "")
     risk_summary = state.get("tool_result")
     filing_info = state.get("filing_info", {})
     
-    # Debug logging
+  
     console.print(f"[DEBUG] tool_result type: {type(risk_summary)}")
     console.print(f"[DEBUG] tool_result length: {len(str(risk_summary)) if risk_summary else 0}")
     console.print(f"[DEBUG] tool_result preview: {str(risk_summary)[:300] if risk_summary else 'None'}...")
@@ -527,7 +513,7 @@ def curate_report_node(state: FinanceAgentState) -> dict:
     retrieved_section = filing_info.get("section", "Unknown")
     console.print(f"[DEBUG] Retrieved section: {retrieved_section}")
     
-    # Validate risk summary
+    
     if not risk_summary or str(risk_summary).strip() == "" or str(risk_summary).lower() in ["none", "n/a"]:
         console.print("⚠️ WARNING: Risk summary is empty or invalid!")
         if filing_info:
@@ -557,7 +543,7 @@ def curate_report_node(state: FinanceAgentState) -> dict:
     console.print(f"📈 Key Metrics Available: {len(key_metrics) if key_metrics else 0}")
     console.print(f"📰 News Articles: {len(news_articles)}")
     
-    # Format stock performance summary
+   
     if key_metrics and isinstance(key_metrics, dict) and any(key_metrics.values()):
         try:
             current_price = key_metrics.get('current_price', 'N/A')
@@ -593,7 +579,7 @@ def curate_report_node(state: FinanceAgentState) -> dict:
             "messages": [AIMessage(content=error_msg)]
         }
 
-    # Format news summary
+   
     if news_articles and isinstance(news_articles, list) and len(news_articles) > 0:
         try:
             news_items = []
@@ -613,7 +599,7 @@ def curate_report_node(state: FinanceAgentState) -> dict:
     else:
         news_summary_text = f"- **{company_name}** market developments ongoing"
 
-    # --- MARKDOWN REPORT CONSTRUCTION ---
+    
     risk_preview = truncate_text(risk_summary, max_length=1000) if risk_summary else "Risk data unavailable."
     
     report_content_md = f"""
@@ -637,12 +623,12 @@ This report combines key insights from market data, SEC filings, and news sentim
 **Note:** This report is for informational purposes only.
 """
     
-    # Pretty print the report
+   
     console.print("\n" + "="*60)
     console.print(RichMarkdown(report_content_md))
     console.print("="*60)
     
-    # Create and save enhanced DOCX
+  
     saved_successfully = False
     docx_path = None
     

@@ -6,7 +6,6 @@ import json
 import sys
 
 async def test_websocket():
-    """Test the WebSocket connection to FinSight API"""
     
     session_id = "test-session-123"
     uri = f"ws://localhost:5500/ws/{session_id}"
