@@ -1,4 +1,4 @@
-# websocket client - to be paired with , main_backend.py
+
 
 import asyncio
 import websockets
@@ -17,7 +17,7 @@ async def test_websocket():
         async with websockets.connect(uri) as websocket:
             print("✅ Connected successfully!\n")
             
-            # Receive initial greeting
+           
             greeting_response = await websocket.recv()
             greeting_data = json.loads(greeting_response)
             print("📩 Received greeting:")
@@ -25,7 +25,7 @@ async def test_websocket():
             print(f"Content:\n{greeting_data.get('content')}\n")
             print("-" * 60)
             
-            # Test queries
+        
             test_queries = [
                 "What is the current stock price of Apple (AAPL)?",
                 "Show me recent news about Tesla",
@@ -35,7 +35,7 @@ async def test_websocket():
             for query in test_queries:
                 print(f"\n📤 Sending: {query}")
                 
-                # Send query
+                
                 await websocket.send(json.dumps({"message": query}))
                 
                 if query.lower() == "exit":
@@ -44,7 +44,7 @@ async def test_websocket():
                     print(f"📥 Response: {response_data.get('content')}")
                     break
                 
-                # Receive status update
+               
                 try:
                     status_response = await asyncio.wait_for(
                         websocket.recv(), 
@@ -56,10 +56,10 @@ async def test_websocket():
                 except asyncio.TimeoutError:
                     pass
                 
-                # Receive actual response
+               
                 response = await asyncio.wait_for(
                     websocket.recv(), 
-                    timeout=60.0  # Longer timeout for processing
+                    timeout=60.0  
                 )
                 response_data = json.loads(response)
                 
@@ -68,7 +68,7 @@ async def test_websocket():
                 print(f"Intent: {response_data.get('intent')}")
                 print(f"Content:\n{response_data.get('content')[:500]}...")
                 
-                # Show additional data if available
+                
                 if response_data.get('data'):
                     print(f"\n📊 Additional Data:")
                     data = response_data['data']
@@ -81,7 +81,7 @@ async def test_websocket():
                 
                 print("-" * 60)
                 
-                # Wait a bit between queries
+               
                 await asyncio.sleep(2)
             
             print("\n✅ Test completed successfully!")
@@ -96,7 +96,7 @@ async def test_websocket():
         traceback.print_exc()
 
 async def interactive_mode():
-    """Interactive chat mode"""
+  
     session_id = "interactive-session"
     uri = f"ws://localhost:5500/ws/{session_id}"
     
@@ -107,20 +107,19 @@ async def interactive_mode():
         async with websockets.connect(uri) as websocket:
             print("✅ Connected! Type 'exit' to quit.\n")
             
-            # Receive greeting
             greeting_response = await websocket.recv()
             greeting_data = json.loads(greeting_response)
             print(f"Agent: {greeting_data.get('content')}\n")
             print("-" * 60)
             
             while True:
-                # Get user input
+                
                 user_input = input("\nYou: ").strip()
                 
                 if not user_input:
                     continue
                 
-                # Send query
+                
                 await websocket.send(json.dumps({"message": user_input}))
                 
                 if user_input.lower() in ["exit", "quit"]:
@@ -129,7 +128,7 @@ async def interactive_mode():
                     print(f"\nAgent: {response_data.get('content')}")
                     break
                 
-                # Receive response
+                
                 while True:
                     response = await websocket.recv()
                     response_data = json.loads(response)
@@ -139,7 +138,7 @@ async def interactive_mode():
                     elif response_data.get('type') == 'message':
                         print(f"\nAgent: {response_data.get('content')}")
                         
-                        # Show additional info
+                       
                         if response_data.get('data'):
                             data = response_data['data']
                             if 'chart_path' in data and data['chart_path']:

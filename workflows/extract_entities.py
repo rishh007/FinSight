@@ -1,4 +1,4 @@
-# workflows/extract_entities.py
+
 
 import json
 from langchain_ollama import OllamaLLM
@@ -10,14 +10,12 @@ llm = OllamaLLM(model="llama3.2", format="json")
 
 def map_section_code(section):
     section_mapping = {
-        "1A": ["part2item1a", "part1item1"],  # Try Risk Factors section first, then Business section
-        "7": "part2item7",      # Management's Discussion and Analysis
-        "1": "part1item1",      # Business
-        "2": "part2item2",      # Financial Information
-        # Add more mappings as needed
+        "1A": ["part2item1a", "part1item1"],  
+        "7": "part2item7",     
+        "1": "part1item1",     
+        "2": "part2item2",     
     }
     result = section_mapping.get(section, section)
-    # If we got a list of alternatives, return the first one
     return result[0] if isinstance(result, list) else result
 
 def extract_entities_node(state: FinanceAgentState) -> dict:
@@ -54,8 +52,6 @@ Return ONLY the JSON object, nothing else:"""
     
     try:
         response_str = llm.invoke(prompt)
-        
-        # Clean up response - remove markdown code blocks if present
         response_str = response_str.strip()
         if response_str.startswith("```json"):
             response_str = response_str[7:]
@@ -65,7 +61,6 @@ Return ONLY the JSON object, nothing else:"""
             response_str = response_str[:-3]
         response_str = response_str.strip()
         
-        # Debug: print raw response
         print(f"LLM Response: {response_str}")
         
         entities = json.loads(response_str)
@@ -74,7 +69,7 @@ Return ONLY the JSON object, nothing else:"""
         company_name = entities.get("company_name")
         filing_type = entities.get("filing_type")
         section = entities.get("section")
-        time_period = entities.get("time_period", "1")  # Default to "1" if not provided
+        time_period = entities.get("time_period", "1")  
 
         if not ticker and not company_name:
             msg = "I couldn't identify the company in your query. Please be more specific."
@@ -94,7 +89,6 @@ Return ONLY the JSON object, nothing else:"""
 
         print(f"✓ Entities extracted: Ticker={ticker}, Company={company_name}, Filing={filing_type}, Section={section}, Time Period={time_period}")
         
-        # Map the section code to its proper SEC API identifier
         mapped_section = map_section_code(section) if section else None
         
         return {

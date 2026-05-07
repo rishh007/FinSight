@@ -1,4 +1,4 @@
-# auth.py - Authentication and User Management
+
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -11,16 +11,16 @@ import mysql.connector
 from mysql.connector import Error
 import os
 
-# JWT Configuration
+
 SECRET_KEY = "57d8b4915b38351782033ee497e8db06"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Password hashing
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-# MySQL Configuration
+
 MYSQL_CONFIG = {
     "host": "localhost",
     "user": "root",
@@ -28,7 +28,7 @@ MYSQL_CONFIG = {
     "database": "FinSight"
 }
 
-# Pydantic Models
+
 class UserRegister(BaseModel):
     username: str
     email: EmailStr
@@ -46,9 +46,8 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] = None
 
-# Database Helper Functions
+
 def get_db_connection():
-    """Create MySQL connection"""
     try:
         connection = mysql.connector.connect(**MYSQL_CONFIG)
         return connection
@@ -57,15 +56,15 @@ def get_db_connection():
         raise HTTPException(status_code=500, detail="Database connection failed")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
+   
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
-    """Hash a password"""
+   
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    """Create JWT access token"""
+   
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -76,7 +75,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 def get_user_by_username(username: str):
-    """Get user from database by username"""
+    
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     

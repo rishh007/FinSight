@@ -15,13 +15,13 @@ from rich.text import Text
 load_dotenv()
 
 console = Console()
-# SEC API Supported Item Codes
+
 SUPPORTED_ITEMS = {
     "1","1A","1B","1C","2","3","4","5","6","7","7A","8",
     "9","9A","9B","9C","10","11","12","13","14","15"
 }
 
-# Patterns for HTML fallback extraction
+
 SECTION_PATTERNS = {
     "1A": [r"item\s*1a", r"risk\s*factors"],
     "1":  [r"item\s*1\b", r"business"],
@@ -35,7 +35,6 @@ def _normalize_to_item_code(raw: str) -> str:
 
     rs = str(raw).strip().lower()
 
-    # "1a", "1", "7"
     m_direct = re.match(r"^(\d{1,2})([a-z]?)$", rs.replace(" ", ""))
     if m_direct:
         num = m_direct.group(1)
@@ -44,7 +43,7 @@ def _normalize_to_item_code(raw: str) -> str:
         if code in SUPPORTED_ITEMS:
             return code
 
-    # "item 1a"
+   
     m = re.search(r"item[\s\-]*([0-9]{1,2})([a-z]?)", rs)
     if m:
         num = m.group(1)
@@ -53,7 +52,7 @@ def _normalize_to_item_code(raw: str) -> str:
         if code in SUPPORTED_ITEMS:
             return code
 
-    # "part2item1a"
+   
     m2 = re.search(r"item(\d{1,2})([a-z]?)", rs)
     if m2:
         num = m2.group(1)
@@ -62,7 +61,7 @@ def _normalize_to_item_code(raw: str) -> str:
         if code in SUPPORTED_ITEMS:
             return code
 
-    # default fallback for "risk factors"
+  
     if "risk" in rs:
         return "1A"
 
@@ -109,7 +108,7 @@ def _print_section_to_terminal(ticker: str, filing_type: str, section_label: str
     meta = " | ".join(meta_lines) if meta_lines else ""
     console.print(Panel(Text(header + ("\n" + meta if meta else ""), justify="left"), style="bold cyan"))
 
-    # Ensure text is not too long for terminal — already truncated upstream but double-check
+   
     display_text = text if len(text) <= 4000 else text[:4000] + "\n\n[truncated]"
     syntax = Syntax(display_text, "text", theme="monokai", line_numbers=False)
     console.print(syntax)
@@ -198,9 +197,9 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
                 extractor_error = str(ex)
                 console.print(Panel(f"Extractor API FAILED: {extractor_error}", style="red"))
 
-                # Try to introspect and print response body if present
+                
                 try:
-                    # sec_api may raise exceptions that include response details in args
+                    
                     if hasattr(ex, "response") and ex.response is not None:
                         try:
                             body = ex.response.text
@@ -209,7 +208,7 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
                         except Exception:
                             console.print(Panel(Text(str(ex.response.text)[:2000]), style="red"))
                     else:
-                        # try parse from exception message if it contains JSON
+                        
                         maybe_json = re.search(r"(\{.*\})", str(ex))
                         if maybe_json:
                             try:
@@ -220,20 +219,20 @@ def get_sec_filing_section_node(state: FinanceAgentState) -> dict:
                 except Exception as introspect_ex:
                     console.print(Panel(f"Could not introspect API exception: {introspect_ex}", style="red"))
 
-                # Try alternate: if user asked 1 → also try 1A, or vice-versa
+                
                 alternates = []
                 if item_code.endswith("A"):
-                    alternates.append(item_code[:-1])  # "1A" → "1"
+                    alternates.append(item_code[:-1])  
                 else:
                     alt = item_code + "A"
                     if alt in SUPPORTED_ITEMS:
                         alternates.append(alt)
 
-                # Always try the two common ones
+               
                 if "1A" not in alternates: alternates.append("1A")
                 if "1" not in alternates: alternates.append("1")
 
-                # Try alternates
+               
                 for alt in alternates:
                     if alt in tried_items:
                         continue

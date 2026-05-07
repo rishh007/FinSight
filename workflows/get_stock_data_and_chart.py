@@ -11,7 +11,6 @@ from rich.table import Table
 import re
 from langchain_core.messages import AIMessage, HumanMessage 
 
-# Initialize Rich console
 console = Console()
 
 def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
@@ -23,7 +22,7 @@ def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
                 return obj.get(key, default)
             if hasattr(obj, "get"):
                 return obj.get(key, default)
-            # fallback: attribute access
+           
             return getattr(obj, key, default)
         except Exception:
             return default
@@ -32,14 +31,14 @@ def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
     ticker = safe_get(state, "ticker", None)
     request_chart = safe_get(state, "create_chart", False)
 
-    # fallback
+    
     if not company_name:
         company_name = ticker or "Unknown Company"
     company_name = str(company_name).strip() if company_name is not None else "Unknown Company"
 
     console.print(f"📌 Debug: company_name resolved to '{company_name}', ticker='{ticker}', create_chart={request_chart}'")
 
-    # time_period normalization
+   
     time_period = safe_get(state, "time_period", "1")
     if isinstance(time_period, (int, float)):
         time_period = str(int(time_period))
@@ -66,7 +65,7 @@ def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
         console.print(Panel(f"Error: {error_message}", style="bold red"))
         return {"final_answer": error_message, "messages": [AIMessage(content=error_message)]}
 
-    # display params
+    
     params_table = Table(show_header=True, header_style="bold magenta")
     params_table.add_column("Parameter", style="cyan")
     params_table.add_column("Value", style="green")
@@ -115,7 +114,7 @@ def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
             "52_week_low": info.get("fiftyTwoWeekLow") or (hist['Low'].min() if not hist.empty else None),
         }
 
-        # format/display metrics
+      
         metrics_table = Table(title="Key Metrics Retrieved", show_header=True, header_style="bold cyan")
         metrics_table.add_column("Metric", style="cyan")
         metrics_table.add_column("Value", style="white")
@@ -151,7 +150,7 @@ def get_stock_data_and_chart_node(state: FinanceAgentState) -> dict:
         chart_path = None
         if request_chart:
             console.print(f"Creating price chart for {time_period} year period...")
-            # use canonical company_name
+          
             safe_company_name = "".join(c for c in company_name if c.isalnum() or c in (' ', '-', '_')).replace(' ', '_')
             timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
             os.makedirs('./charts', exist_ok=True)

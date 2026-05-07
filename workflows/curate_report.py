@@ -10,7 +10,6 @@ from rich.markdown import Markdown as RichMarkdown
 from state import FinanceAgentState
 from langchain_core.messages import AIMessage, HumanMessage 
 
-# Try to import docx with fallback
 try:
     from docx import Document
     from docx.shared import Inches, Pt, RGBColor
@@ -20,16 +19,14 @@ try:
     from docx.oxml.ns import nsdecls
     from docx.oxml import parse_xml
     DOCX_AVAILABLE = True
-    print("✅ python-docx library loaded successfully")
+    print(" python-docx library loaded successfully")
 except ImportError as e:
     print(f"⚠ Warning: python-docx not available: {e}")
     DOCX_AVAILABLE = False
 
-# Initialize Rich console for pretty printing
 console = Console()
 
 def create_price_chart(company_name, symbol=None, days=90):
-    """Create a professional price chart with gradient styling"""
     try:
         if not symbol:
             symbol_map = {
@@ -48,7 +45,7 @@ def create_price_chart(company_name, symbol=None, days=90):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
-        console.print(f"📊 Downloading stock data for {symbol}...")
+        console.print(f" Downloading stock data for {symbol}...")
         
         stock_data = yf.download(
             symbol, 
@@ -60,7 +57,7 @@ def create_price_chart(company_name, symbol=None, days=90):
         )
         
         if stock_data.empty:
-            console.print(Panel(f"⚠️ No stock data found for {symbol}", style="bold yellow"))
+            console.print(Panel(f" No stock data found for {symbol}", style="bold yellow"))
             return None, None, None
         
         if isinstance(stock_data.index, pd.MultiIndex):
@@ -72,10 +69,9 @@ def create_price_chart(company_name, symbol=None, days=90):
         
         required_columns = ['Close']
         if not all(col in stock_data.columns for col in required_columns):
-            console.print(Panel(f"⚠️ Missing required data columns for {symbol}", style="bold yellow"))
+            console.print(Panel(f" Missing required data columns for {symbol}", style="bold yellow"))
             return None, None, None
         
-        # Enhanced chart styling
         plt.style.use('seaborn-v0_8-darkgrid')
         fig, ax = plt.subplots(figsize=(14, 7), facecolor='#f8f9fa')
         
@@ -86,11 +82,9 @@ def create_price_chart(company_name, symbol=None, days=90):
         
         prices = stock_data['Close']
         
-        # Gradient fill effect
         ax.plot(dates, prices, color="#1f77b4", linewidth=3, alpha=0.9, label=symbol)
         ax.fill_between(dates, prices, alpha=0.2, color='#4CAF50')
         
-        # Enhanced grid and background
         ax.set_facecolor("#ffffff")
         ax.grid(True, alpha=0.2, linestyle='--', linewidth=0.8, color='#cccccc')
         
@@ -103,7 +97,6 @@ def create_price_chart(company_name, symbol=None, days=90):
         ax.set_xlabel('Date', fontsize=13, color='#333333', fontweight='600')
         ax.set_ylabel('Price ($)', fontsize=13, color='#333333', fontweight='600')
         
-        # Enhanced price annotation
         current_price = prices.iloc[-1]
         latest_date = dates.iloc[-1]
         ax.annotate(f'${current_price:.2f}', 
@@ -114,7 +107,6 @@ def create_price_chart(company_name, symbol=None, days=90):
                    color='white', fontweight='bold', fontsize=11,
                    arrowprops=dict(arrowstyle='->', color='#1f77b4', lw=2))
         
-        # Add legend
         ax.legend(loc='upper left', fontsize=10, framealpha=0.9)
         
         plt.tight_layout()

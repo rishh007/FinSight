@@ -47,7 +47,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FinSight API", version="1.0.0", lifespan=lifespan)
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -71,7 +70,6 @@ app.mount("/static", StaticFiles(directory="static", html=True), name="static")
 async def serve_index():
     return FileResponse("static/frontend.html")
 
-# Initialize LLM
 try:
     llm = OllamaLLM(model="llama3.2", format="json")
     print("✓ Ollama LLM initialized")
@@ -79,7 +77,7 @@ except Exception as e:
     print(f"✗ Error initializing Ollama: {e}")
     llm = None
 
-# Pydantic models for API
+
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
@@ -95,13 +93,13 @@ def detect_follow_up(state: FinanceAgentState) -> bool:
     query_lower = state["user_query"].lower()
     
     follow_up_indicators = [
-        # Continuation words
+       
         "also", "and", "now", "then", "next",
-        # Comparative words
+        
         "what about", "how about", "versus", "vs", "compared to", "compare",
-        # Additive words
+        
         "too", "as well", "additionally",
-        # Reference words
+       
         "same for", "do the same", "repeat for"
     ]
     
@@ -236,7 +234,7 @@ async def store_file_dual(session_id: str, file_path: str, file_type: str, file_
             "created_at": datetime.now()
         })
         
-        # Store file metadata
+        
         await db.files.insert_one({
             "session_id": session_id,
             "type": file_type,
@@ -264,7 +262,7 @@ def non_financial_query_node(state: FinanceAgentState) -> dict:
         "messages": [AIMessage(content=response)]
     }
 
-# Helper functions
+
 def check_for_chart_keywords(query: str) -> bool:
     query = query.lower()
     return any(keyword in query for keyword in ["chart", "plot", "graph", "visualize", "visualise"])
@@ -360,7 +358,7 @@ def classify_intent(state: FinanceAgentState) -> dict:
     
     
     section_patterns = [
-        r"item\s+\d+[a-z]?",  # "Item 1A", "Item 7"
+        r"item\s+\d+[a-z]?", 
         r"section\s+\d+",
         r"part\s+[iv]+",
     ]
@@ -498,7 +496,6 @@ JSON:
         decision_json = json.loads(response_str)
         intent = decision_json.get("step", "")
         
-        # Validate intent
         valid_intents = [
             "get_sec_filing_section",
             "get_financial_news", 
@@ -529,7 +526,7 @@ JSON:
 
     except Exception as e:
         print(f"❌ Generic error during classification: {e}")
-        # Safe fallback
+       
         if has_section_keyword:
             intent = "get_sec_filing_section"
         else:#
@@ -555,11 +552,9 @@ def merge_entities(state, updates):
     if updates.get("intent"):
         state["intent"] = updates["intent"]
     
-    # Handle chart flag
     if "create_chart" in updates:
         state["create_chart"] = updates["create_chart"]
     
-    # Handle filing type and section
     if updates.get("filing_type"):
         state["filing_type"] = updates["filing_type"]
     
@@ -592,11 +587,8 @@ Here are some things you can ask me:
     }
 
 def conversational_llm_node(state: FinanceAgentState) -> dict:
-    """Fallback conversational responses using LLM for natural dialogue"""
-    
-    # Build conversation history
     history = ""
-    for msg in state["messages"][-6:]:  # Last 6 messages for context
+    for msg in state["messages"][-6:]:  
         role = "User" if isinstance(msg, HumanMessage) else "Assistant"
         history += f"{role}: {msg.content}\n"
     
@@ -1082,26 +1074,25 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             serializable_messages.append(msg)
                     db_state["messages"] = serializable_messages
 
-                # Update database with serialized state
+               
                 await db.sessions.update_one(
                     {"session_id": session_id},
                     {"$set": {"state": db_state}}
                 )
 
-                # Update in-memory session data with original state
                 session_data["state"] = updated_state
                 
-                # Get intent
+             
                 intent = updated_state.get("intent")
                 
-                # Use user-friendly message if available
+             
                 display_message = updated_state.get("user_friendly_message") or updated_state.get("final_answer", "I couldn't process that request.")
 
-                # Ensure it's a string, not None
+                
                 if not isinstance(display_message, str) or not display_message:
                     display_message = "I couldn't process that request."
 
-                # Store conversation messages
+            
                 await db.messages.insert_many([
                     {
                         "session_id": session_id,
@@ -1124,17 +1115,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "data": {}
                 }
 
-                # Attach extra data depending on intent
+               
                 if intent == "get_stock_data_and_chart":
                     response_packet["data"]["metrics"] = updated_state.get("structured_data")
                     chart_path = updated_state.get("chart_path")
                     
                     if chart_path and os.path.exists(chart_path):
-                        # Convert to URL path (handle both Windows and Unix paths)
+                       
                         chart_url = "/" + str(chart_path).replace("\\", "/")
                         response_packet["data"]["chart_url"] = chart_url
                         
-                        # Store file in database
+                  
                         await store_file_dual(
                             session_id=session_id,
                             file_path=chart_path,
@@ -1153,7 +1144,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 elif intent == "get_report":
                     response_packet["data"]["report"] = updated_state.get("report_data")
                     
-                    # Look for generated report files
+               
                     reports_dir = Path("./reports")
                     if reports_dir.exists():
                         report_files = sorted(
@@ -1166,7 +1157,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             report_url = f"/reports/{latest_report.name}"
                             response_packet["data"]["report_url"] = report_url
                             
-                            # Store file in database
+                         
                             await store_file_dual(
                                 session_id=session_id,
                                 file_path=str(latest_report),
@@ -1176,7 +1167,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 elif intent == "rag_filing_lookup":
                     response_packet["data"]["rag_answer"] = updated_state.get("rag_answer", "")
 
-                # Send final agent message to UI
+               
                 await websocket.send_json(response_packet)
 
                 if display_message:
@@ -1190,7 +1181,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 print(f"WebSocket error for session {session_id}:")
                 print(error_details)
                 
-                # Send sanitized error to client
+               
                 error_message = str(e) if not isinstance(e, (IOError, OSError)) else "An error occurred processing your request"
                 await websocket.send_json({
                     "type": "error",
@@ -1297,7 +1288,7 @@ async def restore_files_from_db(session_id: str):
         
         for file_meta in files:
             try:
-                # Get binary data
+               
                 binary_doc = await db.file_binaries.find_one({"_id": file_meta["binary_id"]})
                 if not binary_doc:
                     errors.append(f"Binary not found for {file_meta['name']}")
@@ -1380,7 +1371,7 @@ async def register(user: UserRegister):
 
 @app.post("/auth/login", response_model=Token)
 async def login(user: UserLogin):
-    """Login user and return JWT token"""
+    
     authenticated_user = authenticate_user(user.username, user.password)
     
     if not authenticated_user:

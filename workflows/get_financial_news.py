@@ -12,12 +12,12 @@ console = Console()
 load_dotenv()
 
 def get_financial_news_node(state: FinanceAgentState) -> dict:
-    console.print(Panel("📰 NODE: Getting Financial News", style="bold cyan"))
+    console.print(Panel("NODE: Getting Financial News", style="bold cyan"))
     
     company_name = state.get("company_name")
     if not company_name:
         error_message = "Error: Cannot fetch news. The company name or ticker was not found in your previous query."
-        console.print(Panel(f"❌ {error_message}", style="bold red"))
+        console.print(Panel(f" {error_message}", style="bold red"))
         return {"final_answer": error_message}
     
     search_table = Table(title="News Search Parameters", show_header=True, header_style="bold magenta")
@@ -31,10 +31,10 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
     serper_api_key = os.getenv("SERPER_API_KEY")
     if not serper_api_key:
         error_message = "Error: SERPER_API_KEY is not set in environment variables."
-        console.print(Panel(f"❌ {error_message}", style="bold red"))
+        console.print(Panel(f" {error_message}", style="bold red"))
         return {"final_answer": error_message}
     
-    console.print("🔐 Serper API key found - preparing request...")
+    console.print(" Serper API key found - preparing request...")
     
     try:
         with console.status(f"[bold green]Searching for news articles about {company_name}..."):
@@ -47,11 +47,11 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
             data = response.json()
         
         news_results = data.get('news', [])
-        console.print(f"📈 Found {len(news_results)} articles from Serper API")
+        console.print(f" Found {len(news_results)} articles from Serper API")
         
         if not news_results:
             message = f"No recent news articles found for {company_name}."
-            console.print(Panel(f"⚠️ {message}", style="bold yellow"))
+            console.print(Panel(f" {message}", style="bold yellow"))
             return {"final_answer": message}
         
         articles_summary = []
@@ -64,7 +64,7 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
                 "content_snippet": article.get('snippet', 'No preview available.')
             })
         
-        results_table = Table(title="📰 News Articles Found", show_header=True, header_style="bold green")
+        results_table = Table(title=" News Articles Found", show_header=True, header_style="bold green")
         results_table.add_column("Title", style="white", max_width=40)
         results_table.add_column("Source", style="cyan", max_width=15)
         results_table.add_column("Published", style="yellow", max_width=12)
@@ -96,14 +96,14 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
                 f"[bold]{first_article['title']}[/bold]\n\n"
                 f"[dim]Source: {first_article['source']}[/dim]\n\n"
                 f"{first_article['content_snippet']}",
-                title="📄 Featured Article Preview",
+                title=" Featured Article Preview",
                 title_align="left",
                 border_style="blue",
                 padding=(1, 2)
             ))
         
         success_message = f"Successfully fetched {len(articles_summary)} news articles for {company_name}."
-        console.print(Panel(f"✅ {success_message}", style="bold green"))
+        console.print(Panel(f" {success_message}", style="bold green"))
         
         return {
             "news_results": articles_summary,
@@ -113,5 +113,5 @@ def get_financial_news_node(state: FinanceAgentState) -> dict:
         
     except Exception as e:
         error_message = f"Failed to fetch news. Error: {e}"
-        console.print(Panel(f"❌ {error_message}", style="bold red"))
+        console.print(Panel(f" {error_message}", style="bold red"))
         return {"final_answer": error_message, "messages": [AIMessage(content=error_message)]}

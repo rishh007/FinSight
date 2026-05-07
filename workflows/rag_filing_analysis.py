@@ -87,11 +87,11 @@ def index_exists(ticker: str) -> bool:
 def save_indexes(ticker: str, faiss_db: FAISS, documents: List[Document]):
     faiss_path, docs_path, metadata_path = get_index_paths(ticker)
     
-    # Save FAISS
+    
     faiss_db.save_local(faiss_path)
     print(f"✓ Saved FAISS index: {faiss_path}")
     
-    # Save documents as JSON
+    
     docs_json = [
         {
             "page_content": doc.page_content,
@@ -103,7 +103,7 @@ def save_indexes(ticker: str, faiss_db: FAISS, documents: List[Document]):
         json.dump(docs_json, f, ensure_ascii=False, indent=2)
     print(f"✓ Saved documents: {docs_path}")
     
-    # Save metadata
+ 
     metadata = {
         "ticker": ticker,
         "num_documents": len(documents),
@@ -117,7 +117,7 @@ def save_indexes(ticker: str, faiss_db: FAISS, documents: List[Document]):
 def load_indexes(ticker: str, embedding_model: Embeddings) -> tuple:
     faiss_path, docs_path, metadata_path = get_index_paths(ticker)
     
-    # Load FAISS
+    
     faiss_db = FAISS.load_local(
         faiss_path, 
         embedding_model,
@@ -125,7 +125,7 @@ def load_indexes(ticker: str, embedding_model: Embeddings) -> tuple:
     )
     print(f"✓ Loaded FAISS index: {faiss_path}")
     
-    # Load documents from JSON
+    
     with open(docs_path, 'r', encoding='utf-8') as f:
         docs_json = json.load(f)
     
@@ -135,7 +135,7 @@ def load_indexes(ticker: str, embedding_model: Embeddings) -> tuple:
     ]
     print(f"✓ Loaded {len(documents)} documents from JSON")
     
-    # Recreate BM25 (more reliable than pickling)
+    
     bm25_retriever = BM25Retriever.from_documents(documents)
     bm25_retriever.k = 10
     print(f"✓ Recreated BM25 retriever from documents")
@@ -164,7 +164,7 @@ def find_filing(ticker: str) -> Optional[Path]:
     ticker_upper = ticker.upper()
     ticker_lower = ticker.lower()
     
-    # Search patterns
+   
     patterns = [
         f"{ticker_upper}_*.html",
         f"{ticker_upper}.html",
@@ -190,10 +190,10 @@ def download_sec_filing(ticker: str, filing_type: str = "10-K") -> Optional[Path
     try:
         print(f"📥 Downloading latest {filing_type} filing for {ticker}...")
         
-        # Initialize SEC API
+        
         query_api = QueryApi(api_key=api_key)
         
-        # Query for latest filing
+      
         query = {
             "query": {"query_string": {"query": f"ticker:{ticker} AND formType:\"{filing_type}\""}},
             "from": "0",
@@ -216,30 +216,30 @@ def download_sec_filing(ticker: str, filing_type: str = "10-K") -> Optional[Path
             print(f"❌ No filing URL found for {ticker}.")
             return None
         
-        # Generate filename hash from accession number or URL
+        
         if filing_accession:
             file_hash = hashlib.md5(filing_accession.encode()).hexdigest()[:16]
         else:
-            # Fallback to URL hash
+           
             file_hash = hashlib.md5(filing_url.encode()).hexdigest()[:16]
         
-        # Create filename: TICKER_FILING-TYPE_hash.html
+       
         filename = f"{ticker}_{filing_type}_{file_hash}.html"
         file_path = Path(FILINGS_DIR) / filename
         
-        # Check if file already exists
+       
         if file_path.exists():
             print(f"✓ Filing already exists: {filename}")
             return file_path
         
-        # Download HTML content
+        
         headers = {"User-Agent": "FinSight Agent (contact: pranaybhagwat04@gmail.com)"}
         response = requests.get(filing_url, headers=headers, timeout=30)
         response.raise_for_status()
         
         html_content = response.text
         
-        # Save to file
+        
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
         
@@ -259,10 +259,8 @@ def download_sec_filing(ticker: str, filing_type: str = "10-K") -> Optional[Path
         traceback.print_exc()
         return None
 
-
-# Node 1: Check Index
 def check_index_node(state: RAGState) -> Dict[str, Any]:
-    """Check if index exists and set skip flag accordingly."""
+   
     ticker = state["ticker"].upper()
     
     if index_exists(ticker):
@@ -272,27 +270,26 @@ def check_index_node(state: RAGState) -> Dict[str, Any]:
         print(f"🔨 No index found for {ticker} → will build new index")
         return {"skip_processing": False}
 
-# Node 2: Load Filing
 def load_filing_node(state: RAGState) -> Dict[str, Any]:
     if state.get("skip_processing", False):
         return {}
     
     ticker = state["ticker"].upper()
     
-    # First, try to find existing filing
+    
     filing_path = find_filing(ticker)
     
-    # If not found, try to download it automatically
+    
     if not filing_path:
         print(f"📥 Filing not found locally for {ticker}. Attempting to download...")
         filing_path = download_sec_filing(ticker, filing_type="10-K")
         
-        # If download failed, try 10-Q as fallback
+       
         if not filing_path:
             print(f"📥 10-K not available. Trying 10-Q for {ticker}...")
             filing_path = download_sec_filing(ticker, filing_type="10-Q")
         
-        # If still not found, raise error with available tickers
+       
         if not filing_path:
             filing_dir = Path(FILINGS_DIR)
             available_files = list(filing_dir.glob("*.html"))
@@ -309,7 +306,6 @@ def load_filing_node(state: RAGState) -> Dict[str, Any]:
     
     print(f"📄 Loading filing: {filing_path.name}")
     
-    # Parse HTML using unstructured
     elements = partition_html(filename=str(filing_path))
     raw_text = elements_to_text(elements)
     
@@ -317,7 +313,7 @@ def load_filing_node(state: RAGState) -> Dict[str, Any]:
     
     return {"raw_text": raw_text}
 
-# Node 3: Chunking
+
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=1500,
     chunk_overlap=200,
@@ -330,7 +326,7 @@ def chunk_node(state: RAGState) -> Dict[str, Any]:
         return {}
 
     if "raw_text" not in state:
-        return {}  # Defensive: should not happen
+        return {}  
 
     text = state["raw_text"]
     ticker = state["ticker"]
@@ -344,20 +340,17 @@ def chunk_node(state: RAGState) -> Dict[str, Any]:
 
     print(f"✓ Created {len(documents)} chunks")
 
-    # Return new documents without mutating state
     return {"documents": documents}
 
 
-# Node 4: Build Index and Retrieve
 def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
-    """Builds or loads the index and retrieves relevant documents."""
     question = state["question"]
     ticker = state["ticker"]
     
-    # Create embedding model instance for this operation
+    
     embedding_model = SentenceTransformerEmbeddings()
     
-    # Try to load existing index
+   
     if index_exists(ticker):
         print(f"📂 Loading existing index for {ticker}...")
         try:
@@ -373,7 +366,7 @@ def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
             bm25_retriever.k = 10
             save_indexes(ticker, faiss_db, documents)
     else:
-        # Build new index
+       
         documents = state.get("documents", [])
         if not documents:
             return {"retrieved_docs": []} 
@@ -386,20 +379,17 @@ def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
         
         save_indexes(ticker, faiss_db, documents)
     
-    # Create retrievers
+    
     faiss_r = faiss_db.as_retriever(search_kwargs={"k": 10})
     bm25_retriever.k = 10
     
-    # Ensemble Retriever
     retriever = EnsembleRetriever(
         retrievers=[bm25_retriever, faiss_r],
         weights=[0.7, 0.3] 
     )
 
-    # Intelligent retrieval based on query type
     q_lower = question.lower()
 
-    # Specific financial line items that need exact matching
     keyword_phrases = [
         "other operating expenses",
         "other non-current liabilities",
@@ -413,12 +403,12 @@ def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
         "g&a",
     ]
 
-    # Check if question mentions a specific line item
+    
     phrase = next((p for p in keyword_phrases if p in q_lower), None)
 
     if phrase:
         print(f"✓ Keyword phrase match '{phrase}' → using hybrid retrieval")
-        # Get both keyword and semantic results
+        
         keyword_hits = [
             doc for doc in documents
             if phrase in doc.page_content.lower()
@@ -427,18 +417,17 @@ def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
         semantic_docs = retriever.invoke(question)
         
         if keyword_hits:
-            # Combine: prioritize exact matches but add semantic results
+           
             seen_ids = set()
             docs = []
             
-            # Add keyword matches first
+           
             for doc in keyword_hits[:5]:
                 doc_id = id(doc.page_content)
                 if doc_id not in seen_ids:
                     docs.append(doc)
                     seen_ids.add(doc_id)
-            
-            # Add semantic matches
+      
             for doc in semantic_docs:
                 doc_id = id(doc.page_content)
                 if doc_id not in seen_ids and len(docs) < 10:
@@ -450,19 +439,19 @@ def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
             print(f"  No exact matches found, using semantic search")
             docs = semantic_docs
     else:
-        # For general queries, check if asking about financial statements
+       
         statement_keywords = ["statement of operations", "balance sheet", "income statement", 
                             "cash flow", "consolidated", "financial statements"]
         
         if any(kw in q_lower for kw in statement_keywords):
             print("✓ Financial statement query detected → boosting table chunks")
-            # Get more results and prioritize chunks with table-like structure
+           
             all_docs = retriever.invoke(question)
             
-            # Prioritize chunks that look like tables
+            
             table_docs = []
             other_docs = []
-            dollar_sign = chr(36)  # Dollar sign character
+            dollar_sign = chr(36) 
             for d in all_docs:
                 has_pipes = '|' in d.page_content
                 has_dollars = d.page_content.count(dollar_sign) > 3
@@ -475,7 +464,7 @@ def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
             docs = table_docs[:8] + other_docs[:4]
             print(f"  Retrieved {len(table_docs[:8])} table chunks, {len(other_docs[:4])} other chunks")
         else:
-            # Generic retrieval
+         
             docs = retriever.invoke(question)[:10]
     
     print(f"✓ Retrieved {len(docs)} relevant documents")
@@ -483,18 +472,18 @@ def build_and_retrieve_node(state: RAGState) -> Dict[str, Any]:
     return {"retrieved_docs": docs}
 
 
-# Node 5: Answer
+
 llm = Ollama(model="llama3.2")
 
 
 def answer_node(state: RAGState) -> Dict[str, Any]:
-    """Generates the final answer using the LLM and retrieved context."""
+   
     question = state["question"]
     
     if not state.get("retrieved_docs"):
         return {"answer": "I found no relevant context in the filing to answer your question."}
 
-    # Limit context to avoid token overflow
+   
     context_parts = []
     total_chars = 0
     
@@ -508,7 +497,7 @@ def answer_node(state: RAGState) -> Dict[str, Any]:
     context = "\n\n".join(context_parts)
     print(f"ℹ️  Using {len(context_parts)} documents ({total_chars:,} chars) as context")
 
-    # Check if this is a specific line-item query
+   
     line_item_keywords = [
         "amount", "reported", "value", "expenses", "revenue", "income", 
         "assets", "liabilities", "equity", "how much", "what is the",
